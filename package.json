@@ -1,0 +1,43 @@
+{
+  "name": "owner-assistant-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for ELD driver monitoring and device ordering",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest",
+    "migrate": "sequelize db:migrate"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "eld",
+    "fleet"
+  ],
+  "author": "Algo Group",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "bcrypt": "^5.1.0",
+    "bull": "^4.11.0",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.3.1",
+    "express": "^5.2.1",
+    "joi": "^17.11.0",
+    "pg": "^8.11.0",
+    "pg-hstore": "^2.3.4",
+    "redis": "^4.6.0",
+    "sequelize": "^6.35.0",
+    "telegraf": "^4.14.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
