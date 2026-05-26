@@ -1,7 +1,15 @@
+const { Op } = require('sequelize');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
 const logger = require('../utils/logger');
 const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo } = require('../services/eldService');
+
+function isActiveDriver(d) {
+  if (d.status !== undefined) return String(d.status).toLowerCase() === 'active';
+  if (d.is_active !== undefined) return d.is_active === true || d.is_active === 1;
+  if (d.active !== undefined) return d.active === true || d.active === 1;
+  return true;
+}
 
 const STATUS_LABELS = {
   'DS_D':   'DRIVING',
@@ -23,20 +31,21 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     fetchVehicleStatus(companyKey),
   ]);
 
-  // Key by driver_id
+  // Only active drivers
+  const activeDrivers = driversRaw.filter(isActiveDriver);
+
   const statusMap = {};
-  for (const s of statusRaw) {
-    statusMap[String(s.driver_id)] = s;
-  }
+  for (const s of statusRaw) statusMap[String(s.driver_id)] = s;
 
   const vehicleMap = {};
   for (const v of vehicleRaw) {
     if (v.driver_id) vehicleMap[String(v.driver_id)] = v;
   }
 
-  let count = 0;
-  for (const d of driversRaw) {
+  const activeIds = [];
+  for (const d of activeDrivers) {
     const dId = String(d.driver_id || d.id);
+    activeIds.push(dId);
     const name = `${d.first_name || ''} ${d.last_name || ''}`.trim() || d.name || d.driver_name || d.username || 'Unknown';
     const st = statusMap[dId] || {};
     const v  = vehicleMap[dId] || {};
@@ -65,9 +74,17 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     } else {
       await Driver.create(driverData);
     }
-    count++;
   }
-  return count;
+
+  // Remove drivers that are no longer active
+  if (activeIds.length > 0) {
+    const removed = await Driver.destroy({
+      where: { user_id: user.id, driver_id: { [Op.notIn]: activeIds } },
+    });
+    if (removed > 0) logger.info(`Removed ${removed} inactive driver(s) for user ${user.id}`);
+  }
+
+  return activeIds.length;
 }
 
 const start = async (ctx) => {
