@@ -53,7 +53,8 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
 
 const driversList = async (ctx) => {
   try {
-    await ctx.answerCbQuery();
+    try { await ctx.answerCbQuery(); } catch (_) {}
+
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.reply('Please /start first.');
 
