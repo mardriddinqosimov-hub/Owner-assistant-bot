@@ -47,6 +47,9 @@ bot.action('drivers_list_refresh', callbackHandlers.driversListRefresh);
 bot.action('order_devices_start', callbackHandlers.orderStart);
 bot.action(/^order_qty_(.+)$/, callbackHandlers.orderQuantity);
 bot.action(/^order_ship_(standard|overnight)_(\d+)$/, callbackHandlers.orderShipping);
+bot.action('order_confirm', callbackHandlers.orderConfirm);
+bot.action('order_edit', callbackHandlers.orderEdit);
+bot.action('order_cancel', callbackHandlers.orderCancel);
 
 // ─── Menu callbacks ──────────────────────────────────────────────────────────
 bot.action('main_menu', callbackHandlers.mainMenu);
@@ -55,6 +58,7 @@ bot.action('help_menu', callbackHandlers.helpMenu);
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 bot.on('text', messageHandlers.handleText);
+bot.on('photo', messageHandlers.handlePhoto);
 bot.on('document', messageHandlers.handleDocument);
 
 async function startBot() {

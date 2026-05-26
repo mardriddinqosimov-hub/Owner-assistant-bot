@@ -216,6 +216,20 @@ const driverLocation = async (ctx) => {
 const DEVICE_PRICE = 179;
 const OVERNIGHT_EXTRA = 100;
 
+const CANCEL_KB = { inline_keyboard: [[{ text: '❌ Cancel Order', callback_data: 'order_cancel' }]] };
+
+const ORDER_STEPS = ['owner_name', 'company_name', 'email', 'phone', 'location', 'cable_pin', 'stickers'];
+
+const ORDER_PROMPTS = {
+  owner_name:   '👤 <b>(1/7) Owner Name</b>\n\nPlease enter the owner\'s full name:',
+  company_name: '🏢 <b>(2/7) Company Name</b>\n\nPlease enter your company name:',
+  email:        '📧 <b>(3/7) Email Address</b>\n\nPlease enter your email address:',
+  phone:        '📱 <b>(4/7) Phone Number</b>\n\nPlease enter your contact phone number:',
+  location:     '📍 <b>(5/7) Delivery Location</b>\n\nPlease enter your full delivery address:',
+  cable_pin:    '🔌 <b>(6/7) Cable PIN</b>\n\nPlease enter the Cable PIN:',
+  stickers:     '🏷️ <b>(7/7) Stickers Count</b>\n\nHow many stickers do you need?',
+};
+
 const orderStart = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -246,7 +260,6 @@ const orderQuantity = async (ctx) => {
     const raw = ctx.match[1];
 
     if (raw === 'custom') {
-      // Store pending state so messageHandler can capture the next message
       orderPendingCustomQty.set(ctx.from.id, true);
       await ctx.editMessageText(
         `📦 <b>Custom Quantity</b>\n\nHow many PT30 devices do you need?\n\nReply with a number (e.g. <code>5</code>)`,
@@ -299,30 +312,77 @@ const orderShipping = async (ctx) => {
     const subtotal = qty * DEVICE_PRICE;
     const shippingCost = shipping === 'overnight' ? OVERNIGHT_EXTRA : 0;
     const total = subtotal + shippingCost;
-    const shippingLabel = shipping === 'overnight' ? 'Overnight (+$100)' : 'Standard (FREE)';
 
-    // Store pending order state
-    orderPendingInfo.set(ctx.from.id, { qty, shipping, total });
+    // Start Q&A session
+    orderSessions.set(ctx.from.id, { step: 'owner_name', qty, shipping, total });
 
     await ctx.editMessageText(
-      `📦 <b>Order Summary</b>\n\n` +
-      `${qty}x PT30 ELD @ $${DEVICE_PRICE} each\n` +
-      `Shipping: ${shippingLabel}\n` +
-      `<b>Total: $${total}</b>\n\n` +
-      `To complete your order, please reply with:\n` +
-      `• Company name\n` +
-      `• Shipping address\n` +
-      `• Contact phone`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'order_devices_start' }]],
-        },
-      }
+      ORDER_PROMPTS.owner_name,
+      { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
   } catch (error) {
     logger.error('orderShipping error:', error);
     await ctx.reply('❌ Error.');
+  }
+};
+
+const orderConfirm = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const session = orderSessions.get(ctx.from.id);
+    if (!session) return ctx.reply('Session expired. Please /start again.');
+
+    session.step = 'payment';
+    const zelleAddress = process.env.ZELLE_ADDRESS || 'LEADER ELD LLC';
+
+    await ctx.editMessageText(
+      `💳 <b>Payment Required</b>\n\n` +
+      `Amount due: <b>$${session.total}</b>\n\n` +
+      `Please send payment via <b>Zelle</b>:\n` +
+      `📲 <code>${zelleAddress}</code>\n\n` +
+      `After payment, send a <b>photo or PDF</b> of your cheque / payment screenshot here.\n\n` +
+      `⚠️ Only today's dated cheques are accepted.`,
+      { parse_mode: 'HTML', reply_markup: CANCEL_KB }
+    );
+  } catch (error) {
+    logger.error('orderConfirm error:', error);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const orderEdit = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const session = orderSessions.get(ctx.from.id);
+    if (!session) return ctx.reply('Session expired. Please /start again.');
+
+    session.step = 'owner_name';
+    ORDER_STEPS.forEach(k => delete session[k]);
+
+    await ctx.editMessageText(
+      `✏️ Let\'s re-enter your details.\n\n` + ORDER_PROMPTS.owner_name,
+      { parse_mode: 'HTML', reply_markup: CANCEL_KB }
+    );
+  } catch (error) {
+    logger.error('orderEdit error:', error);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const orderCancel = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    orderSessions.delete(ctx.from.id);
+    await ctx.editMessageText(
+      `❌ <b>Order Cancelled</b>\n\nUse /start to return to the menu.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Main Menu', callback_data: 'main_menu' }]] },
+      }
+    );
+  } catch (error) {
+    logger.error('orderCancel error:', error);
+    await ctx.reply('Order cancelled.');
   }
 };
 
@@ -404,7 +464,7 @@ const helpMenu = async (ctx) => {
 
 // ─── Shared state for multi-step order flow ──────────────────────────────────
 const orderPendingCustomQty = new Map(); // telegram_id -> true
-const orderPendingInfo = new Map();      // telegram_id -> { qty, shipping, total }
+const orderSessions = new Map();         // telegram_id -> { step, qty, shipping, total, ...fields }
 
 module.exports = {
   driverDetails,
@@ -415,10 +475,16 @@ module.exports = {
   orderStart,
   orderQuantity,
   orderShipping,
+  orderConfirm,
+  orderEdit,
+  orderCancel,
   mainMenu,
   changeTeam,
   helpMenu,
   orderPendingCustomQty,
-  orderPendingInfo,
+  orderSessions,
+  ORDER_STEPS,
+  ORDER_PROMPTS,
+  CANCEL_KB,
   showShippingSelection,
 };
