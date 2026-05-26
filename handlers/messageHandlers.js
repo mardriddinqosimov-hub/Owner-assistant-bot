@@ -118,6 +118,7 @@ async function completeOrder(ctx, session, fileId, type) {
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
 const handleText = async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
   if (ctx.message.text.startsWith('/')) return;
 
   const userId = ctx.from.id;
@@ -161,6 +162,7 @@ const handleText = async (ctx) => {
 };
 
 const handlePhoto = async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') return;
@@ -192,6 +194,7 @@ const handlePhoto = async (ctx) => {
 };
 
 const handleDocument = async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') {
