@@ -43,7 +43,11 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
   };
 
   if (editMessage) {
-    await ctx.editMessageText(info, { parse_mode: 'HTML', reply_markup: keyboard });
+    try {
+      await ctx.editMessageText(info, { parse_mode: 'HTML', reply_markup: keyboard });
+    } catch (err) {
+      if (!err.message?.includes('message is not modified')) throw err;
+    }
   } else {
     await ctx.reply(info, { parse_mode: 'HTML', reply_markup: keyboard });
   }
@@ -65,21 +69,25 @@ const driversList = async (ctx) => {
       );
     }
 
-    await ctx.editMessageText(
-      `👥 <b>Your Drivers (${driverList.length})</b>`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            ...driverList.map((d) => [
-              { text: `👤 ${d.driver_name}`, callback_data: `driver_details_${d.driver_id}` },
-            ]),
-            [{ text: '🔄 Refresh List', callback_data: 'drivers_list_refresh' }],
-            [{ text: '◀️ Back', callback_data: 'main_menu' }],
-          ],
-        },
-      }
-    );
+    try {
+      await ctx.editMessageText(
+        `👥 <b>Your Drivers (${driverList.length})</b>`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              ...driverList.map((d) => [
+                { text: `👤 ${d.driver_name}`, callback_data: `driver_details_${d.driver_id}` },
+              ]),
+              [{ text: '🔄 Refresh List', callback_data: 'drivers_list_refresh' }],
+              [{ text: '◀️ Back', callback_data: 'main_menu' }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      if (!err.message?.includes('message is not modified')) throw err;
+    }
   } catch (error) {
     logger.error('driversList error:', error);
     await ctx.reply('❌ Error loading drivers.');
