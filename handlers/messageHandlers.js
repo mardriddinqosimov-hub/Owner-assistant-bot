@@ -1,4 +1,3 @@
-const axios = require('axios');
 const logger = require('../utils/logger');
 const {
   orderPendingCustomQty,
@@ -46,54 +45,6 @@ async function showConfirmation(ctx, session) {
   );
 }
 
-async function validateChequeDate(ctx, fileId) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    logger.warn('ANTHROPIC_API_KEY not set — skipping cheque date validation');
-    return true;
-  }
-
-  const file = await ctx.telegram.getFile(fileId);
-  const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-  const resp = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-  const base64 = Buffer.from(resp.data).toString('base64');
-
-  const ext = (file.file_path || '').split('.').pop().toLowerCase();
-  let mediaType = 'image/jpeg';
-  if (ext === 'png') mediaType = 'image/png';
-  else if (ext === 'gif') mediaType = 'image/gif';
-  else if (ext === 'webp') mediaType = 'image/webp';
-  else if (ext === 'pdf') mediaType = 'application/pdf';
-
-  const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-
-  const Anthropic = require('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey });
-
-  const sourceBlock = mediaType === 'application/pdf'
-    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }
-    : { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } };
-
-  const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 16,
-    messages: [{
-      role: 'user',
-      content: [
-        sourceBlock,
-        {
-          type: 'text',
-          text: `Today's date is ${today}. Is this cheque/check dated today? Reply with only YES or NO.`,
-        },
-      ],
-    }],
-  });
-
-  const answer = (msg.content[0]?.text || '').trim().toUpperCase();
-  logger.info(`Cheque date validation result: "${answer}" (today: ${today})`);
-  return answer.startsWith('YES');
-}
-
 async function completeOrder(ctx, session, fileId, type) {
   const summary = buildOrderSummary(session, '🎉 <b>New Device Order!</b>') +
     `\n\n👤 Telegram ID: ${ctx.from.id}`;
@@ -106,7 +57,7 @@ async function completeOrder(ctx, session, fileId, type) {
 
   await ctx.reply(
     `✅ <b>Order Completed!</b>\n\n` +
-    `Your payment has been verified and order received.\n\n` +
+    `Your payment has been received and order placed.\n\n` +
     `We'll contact you at:\n` +
     `📧 ${session.email}\n` +
     `📱 ${session.phone}\n\n` +
@@ -155,7 +106,7 @@ const handleText = async (ctx) => {
   }
 
   if (session && session.step === 'payment') {
-    return ctx.reply('📎 Please send a <b>photo or PDF</b> of your cheque / payment screenshot.', { parse_mode: 'HTML' });
+    return ctx.reply('📎 Please send a <b>photo or PDF</b> of your payment screenshot.', { parse_mode: 'HTML' });
   }
 
   await ctx.reply('Use /help to see available commands.');
@@ -167,29 +118,13 @@ const handlePhoto = async (ctx) => {
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') return;
 
-  await ctx.reply('🔍 Verifying payment date...');
-
   try {
-    const photos = ctx.message.photo;
-    const fileId = photos[photos.length - 1].file_id;
-
-    const valid = await validateChequeDate(ctx, fileId);
-    if (!valid) {
-      orderSessions.delete(userId);
-      return ctx.reply(
-        `❌ <b>Payment Not Accepted</b>\n\n` +
-        `The cheque is not dated today.\n` +
-        `Only today's dated cheques are accepted.\n\n` +
-        `Use /start to restart your order.`,
-        { parse_mode: 'HTML' }
-      );
-    }
-
+    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     await completeOrder(ctx, session, fileId, 'photo');
     orderSessions.delete(userId);
   } catch (err) {
     logger.error('handlePhoto error:', err);
-    await ctx.reply('❌ Error verifying payment. Please try again.');
+    await ctx.reply('❌ Error processing payment. Please try again.');
   }
 };
 
@@ -202,28 +137,13 @@ const handleDocument = async (ctx) => {
     return ctx.reply('Use /help to see available commands.');
   }
 
-  await ctx.reply('🔍 Verifying payment date...');
-
   try {
     const fileId = ctx.message.document.file_id;
-
-    const valid = await validateChequeDate(ctx, fileId);
-    if (!valid) {
-      orderSessions.delete(userId);
-      return ctx.reply(
-        `❌ <b>Payment Not Accepted</b>\n\n` +
-        `The cheque is not dated today.\n` +
-        `Only today's dated cheques are accepted.\n\n` +
-        `Use /start to restart your order.`,
-        { parse_mode: 'HTML' }
-      );
-    }
-
     await completeOrder(ctx, session, fileId, 'document');
     orderSessions.delete(userId);
   } catch (err) {
     logger.error('handleDocument error:', err);
-    await ctx.reply('❌ Error verifying payment. Please try again.');
+    await ctx.reply('❌ Error processing payment. Please try again.');
   }
 };
 
