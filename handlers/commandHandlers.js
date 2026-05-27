@@ -1,8 +1,9 @@
 const { Op } = require('sequelize');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
+const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections } = require('../services/eldService');
 
 function isActiveDriver(d) {
   if (d.status !== undefined) return String(d.status).toLowerCase() === 'active';
@@ -113,6 +114,7 @@ const start = async (ctx) => {
           inline_keyboard: [
             [{ text: '👥 View Drivers', callback_data: 'drivers_list' }],
             [{ text: '📦 Order Devices', callback_data: 'order_devices_start' }],
+            [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
             [{ text: '🔄 Change Team', callback_data: 'change_team' }],
             [{ text: '❓ Help', callback_data: 'help_menu' }],
           ],
@@ -213,4 +215,61 @@ const orders = async (ctx) => {
   );
 };
 
-module.exports = { start, drivers, help, setapi, orders, syncDrivers };
+// ─── DOT Inspection Polling ───────────────────────────────────────────────────
+
+async function checkNewInspections(bot) {
+  const users = await User.findAll({ where: { company_api_key: { [Op.ne]: null } } });
+
+  for (const user of users) {
+    try {
+      const inspections = await fetchInspections(user.company_api_key);
+      for (const insp of inspections) {
+        const externalId = String(insp.inspection_id || insp.id || '');
+        if (!externalId) continue;
+
+        const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
+        if (existing) continue;
+
+        const record = await Inspection.create({
+          user_id:         user.id,
+          driver_id:       String(insp.driver_id || ''),
+          driver_name:     insp.driver_name || 'Unknown Driver',
+          external_id:     externalId,
+          inspection_date: insp.inspection_date || insp.date ? new Date(insp.inspection_date || insp.date) : null,
+          report_number:   insp.report_number || insp.report_id || '',
+          level:           String(insp.level || ''),
+          violations:      parseInt(insp.violations || insp.violation_count || 0, 10),
+          result:          insp.result || insp.outcome || '',
+          details:         JSON.stringify(insp),
+          notified:        false,
+          created_at:      new Date(),
+        });
+
+        const v = record.violations;
+        const dateStr = record.inspection_date
+          ? new Date(record.inspection_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+          : 'Unknown date';
+
+        await bot.telegram.sendMessage(
+          user.telegram_id,
+          `🚔 <b>DOT Inspection Alert!</b>\n\n` +
+          `Driver: <b>${record.driver_name}</b>\n` +
+          `Date: ${dateStr}\n` +
+          (record.report_number ? `Report #: ${record.report_number}\n` : '') +
+          (record.level ? `Level: ${record.level}\n` : '') +
+          `Violations: ${v} ${v > 0 ? '⚠️' : '✅'}\n` +
+          (record.result ? `Result: ${record.result.toUpperCase()}\n` : '') +
+          `\nView details in <b>DOT Inspections</b> → menu.`,
+          { parse_mode: 'HTML' }
+        );
+
+        await record.update({ notified: true });
+        logger.info(`New DOT inspection alert sent to user ${user.id}: ${externalId}`);
+      }
+    } catch (err) {
+      logger.warn(`Inspection check failed for user ${user.id}:`, err.message);
+    }
+  }
+}
+
+module.exports = { start, drivers, help, setapi, orders, syncDrivers, checkNewInspections };

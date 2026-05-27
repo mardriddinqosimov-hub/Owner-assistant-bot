@@ -1,8 +1,11 @@
+const { Op } = require('sequelize');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
+const Order = require('../models/Order');
+const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
-const { fetchDriverStatus, fetchVehicleStatus, formatSeconds, reverseGeocode } = require('../services/eldService');
+const { fetchDriverStatus, fetchVehicleStatus, formatSeconds } = require('../services/eldService');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -11,6 +14,11 @@ function formatTime(date) {
   return new Date(date).toLocaleTimeString('en-US', {
     hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
   });
+}
+
+function formatDate(date) {
+  if (!date) return 'N/A';
+  return new Date(date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 }
 
 async function renderDriverDetails(ctx, driverId, editMessage = true) {
@@ -64,9 +72,7 @@ const driversList = async (ctx) => {
 
     const driverList = await Driver.findAll({ where: { user_id: user.id } });
     if (!driverList.length) {
-      return ctx.editMessageText(
-        'No drivers found.\n\nConnect your ELD:\n/setapi YOUR_COMPANY_KEY'
-      );
+      return ctx.editMessageText('No drivers found.\n\nConnect your ELD:\n/setapi YOUR_COMPANY_KEY');
     }
 
     try {
@@ -114,8 +120,7 @@ const driversListRefresh = async (ctx) => {
 const driverDetails = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const driverId = ctx.match[1];
-    await renderDriverDetails(ctx, driverId, true);
+    await renderDriverDetails(ctx, ctx.match[1], true);
   } catch (error) {
     logger.error('driverDetails error:', error);
     await ctx.reply('❌ Error loading driver details.');
@@ -129,7 +134,6 @@ const driverRefresh = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user || !user.company_api_key) return ctx.reply('Please /start first.');
 
-    // Fetch live HOS + vehicle data in parallel
     const [statusRaw, vehicleRaw] = await Promise.all([
       fetchDriverStatus(user.company_api_key),
       fetchVehicleStatus(user.company_api_key),
@@ -181,30 +185,27 @@ const driverLocation = async (ctx) => {
         `📍 No location data available for <b>${driver.driver_name}</b>`,
         {
           parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[{ text: '◀️ Back', callback_data: `driver_details_${driverId}` }]],
-          },
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: `driver_details_${driverId}` }]] },
         }
       );
     }
 
     const mapsUrl = `https://www.google.com/maps?q=${driver.latitude},${driver.longitude}`;
-
-    const text =
+    await ctx.editMessageText(
       `📍 <b>Last Known Location</b>\n\n` +
       (driver.location_string ? `📌 ${driver.location_string}\n\n` : '') +
       `Latitude: ${driver.latitude}\n` +
-      `Longitude: ${driver.longitude}`;
-
-    await ctx.editMessageText(text, {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🗺️ Open in Maps', url: mapsUrl }],
-          [{ text: '◀️ Back', callback_data: `driver_details_${driverId}` }],
-        ],
-      },
-    });
+      `Longitude: ${driver.longitude}`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🗺️ Open in Maps', url: mapsUrl }],
+            [{ text: '◀️ Back', callback_data: `driver_details_${driverId}` }],
+          ],
+        },
+      }
+    );
   } catch (error) {
     logger.error('driverLocation error:', error);
     await ctx.reply('❌ Error loading location.');
@@ -215,6 +216,7 @@ const driverLocation = async (ctx) => {
 
 const DEVICE_PRICE = 179;
 const OVERNIGHT_EXTRA = 100;
+const HISTORY_PAGE_SIZE = 5;
 
 const CANCEL_KB = { inline_keyboard: [[{ text: '❌ Cancel Order', callback_data: 'order_cancel' }]] };
 
@@ -230,11 +232,39 @@ const ORDER_PROMPTS = {
   stickers:     '🏷️ <b>(7/7) Stickers Count</b>\n\nHow many stickers do you need?',
 };
 
+// order_devices_start → submenu
 const orderStart = async (ctx) => {
   try {
     await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    const activeCount = user ? await Order.count({ where: { user_id: user.id, status: 'active' } }) : 0;
+
     await ctx.editMessageText(
-      `📦 <b>Device Order</b>\n\nPlease select quantity:`,
+      `📦 <b>Device Orders</b>\n\nWhat would you like to do?`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📦 New Order', callback_data: 'order_new' }],
+            [{ text: `📋 Active Orders${activeCount ? ` (${activeCount})` : ''}`, callback_data: 'order_active' }],
+            [{ text: '📜 Order History', callback_data: 'order_history_0' }],
+            [{ text: '◀️ Back', callback_data: 'main_menu' }],
+          ],
+        },
+      }
+    );
+  } catch (error) {
+    logger.error('orderStart error:', error);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+// order_new → qty selection
+const orderNew = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `📦 <b>New Order</b>\n\nPlease select quantity:`,
       {
         parse_mode: 'HTML',
         reply_markup: {
@@ -243,13 +273,13 @@ const orderStart = async (ctx) => {
             [{ text: `2x PT30 ($${DEVICE_PRICE * 2})`, callback_data: 'order_qty_2' }],
             [{ text: `3x PT30 ($${DEVICE_PRICE * 3})`, callback_data: 'order_qty_3' }],
             [{ text: 'Custom quantity', callback_data: 'order_qty_custom' }],
-            [{ text: '◀️ Back', callback_data: 'main_menu' }],
+            [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
           ],
         },
       }
     );
   } catch (error) {
-    logger.error('orderStart error:', error);
+    logger.error('orderNew error:', error);
     await ctx.reply('❌ Error.');
   }
 };
@@ -265,9 +295,7 @@ const orderQuantity = async (ctx) => {
         `📦 <b>Custom Quantity</b>\n\nHow many PT30 devices do you need?\n\nReply with a number (e.g. <code>5</code>)`,
         {
           parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_devices_start' }]],
-          },
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_new' }]] },
         }
       );
       return;
@@ -293,7 +321,7 @@ async function showShippingSelection(ctx, qty, edit = true) {
     inline_keyboard: [
       [{ text: '🚚 Standard (FREE)', callback_data: `order_ship_standard_${qty}` }],
       [{ text: '🚀 Overnight (+$100)', callback_data: `order_ship_overnight_${qty}` }],
-      [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
+      [{ text: '◀️ Back', callback_data: 'order_new' }],
     ],
   };
 
@@ -309,17 +337,11 @@ const orderShipping = async (ctx) => {
     await ctx.answerCbQuery();
     const [, shipping, qtyStr] = ctx.match;
     const qty = parseInt(qtyStr, 10);
-    const subtotal = qty * DEVICE_PRICE;
-    const shippingCost = shipping === 'overnight' ? OVERNIGHT_EXTRA : 0;
-    const total = subtotal + shippingCost;
+    const total = qty * DEVICE_PRICE + (shipping === 'overnight' ? OVERNIGHT_EXTRA : 0);
 
-    // Start Q&A session
     orderSessions.set(ctx.from.id, { step: 'owner_name', qty, shipping, total });
 
-    await ctx.editMessageText(
-      ORDER_PROMPTS.owner_name,
-      { parse_mode: 'HTML', reply_markup: CANCEL_KB }
-    );
+    await ctx.editMessageText(ORDER_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
   } catch (error) {
     logger.error('orderShipping error:', error);
     await ctx.reply('❌ Error.');
@@ -340,8 +362,7 @@ const orderConfirm = async (ctx) => {
       `Amount due: <b>$${session.total}</b>\n\n` +
       `Please send payment via <b>Zelle</b>:\n` +
       `📲 <code>${zelleAddress}</code>\n\n` +
-      `After payment, send a <b>photo or PDF</b> of your cheque / payment screenshot here.\n\n` +
-      `⚠️ Only today's dated cheques are accepted.`,
+      `After payment, send a <b>photo or PDF</b> of your payment screenshot here.`,
       { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
   } catch (error) {
@@ -360,7 +381,7 @@ const orderEdit = async (ctx) => {
     ORDER_STEPS.forEach(k => delete session[k]);
 
     await ctx.editMessageText(
-      `✏️ Let\'s re-enter your details.\n\n` + ORDER_PROMPTS.owner_name,
+      `✏️ Let's re-enter your details.\n\n` + ORDER_PROMPTS.owner_name,
       { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
   } catch (error) {
@@ -374,15 +395,239 @@ const orderCancel = async (ctx) => {
     await ctx.answerCbQuery();
     orderSessions.delete(ctx.from.id);
     await ctx.editMessageText(
-      `❌ <b>Order Cancelled</b>\n\nUse /start to return to the menu.`,
+      `❌ <b>Order Cancelled</b>`,
       {
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [[{ text: '◀️ Main Menu', callback_data: 'main_menu' }]] },
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Orders', callback_data: 'order_devices_start' }]] },
       }
     );
   } catch (error) {
     logger.error('orderCancel error:', error);
     await ctx.reply('Order cancelled.');
+  }
+};
+
+// Active orders list
+const orderActive = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const orders = await Order.findAll({
+      where: { user_id: user.id, status: 'active' },
+      order: [['created_at', 'DESC']],
+    });
+
+    if (!orders.length) {
+      return ctx.editMessageText(
+        `📋 <b>Active Orders</b>\n\nNo active orders.`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_devices_start' }]] },
+        }
+      );
+    }
+
+    await ctx.editMessageText(
+      `📋 <b>Active Orders (${orders.length})</b>\n\nTap an order to view details and tracking.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            ...orders.map(o => [{
+              text: `📦 Order #${o.id} — ${o.qty}× PT30 — $${o.total} — ${formatDate(o.created_at)}`,
+              callback_data: `order_detail_${o.id}`,
+            }]),
+            [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
+          ],
+        },
+      }
+    );
+  } catch (error) {
+    logger.error('orderActive error:', error);
+    await ctx.reply('❌ Error loading active orders.');
+  }
+};
+
+// Order history (paginated)
+const orderHistory = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const page = parseInt(ctx.match[1], 10) || 0;
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const total = await Order.count({ where: { user_id: user.id } });
+
+    if (!total) {
+      return ctx.editMessageText(
+        `📜 <b>Order History</b>\n\nNo orders yet.`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_devices_start' }]] },
+        }
+      );
+    }
+
+    const orders = await Order.findAll({
+      where: { user_id: user.id },
+      order: [['created_at', 'DESC']],
+      limit: HISTORY_PAGE_SIZE,
+      offset: page * HISTORY_PAGE_SIZE,
+    });
+
+    const totalPages = Math.ceil(total / HISTORY_PAGE_SIZE);
+    const navRow = [];
+    if (page > 0) navRow.push({ text: '◀️ Prev', callback_data: `order_history_${page - 1}` });
+    if (page < totalPages - 1) navRow.push({ text: 'Next ▶️', callback_data: `order_history_${page + 1}` });
+
+    await ctx.editMessageText(
+      `📜 <b>Order History (${total})</b>\n\nPage ${page + 1} of ${totalPages}`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            ...orders.map(o => {
+              const statusIcon = o.status === 'delivered' ? '✅' : '🔄';
+              return [{ text: `${statusIcon} #${o.id} — ${o.qty}× PT30 — $${o.total} — ${formatDate(o.created_at)}`, callback_data: `order_detail_${o.id}` }];
+            }),
+            ...(navRow.length ? [navRow] : []),
+            [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
+          ],
+        },
+      }
+    );
+  } catch (error) {
+    logger.error('orderHistory error:', error);
+    await ctx.reply('❌ Error loading order history.');
+  }
+};
+
+// Order detail view
+const orderDetail = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const orderId = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const order = await Order.findOne({ where: { id: orderId, user_id: user.id } });
+    if (!order) return ctx.editMessageText('Order not found.');
+
+    const shippingLabel = order.shipping === 'overnight' ? 'Overnight (+$100)' : 'Standard (FREE)';
+    const statusLine = order.status === 'delivered'
+      ? '✅ <b>Delivered</b>'
+      : '🔄 <b>Active</b> (awaiting delivery)';
+
+    const text =
+      `📦 <b>Order #${order.id}</b>\n\n` +
+      `Status: ${statusLine}\n` +
+      `📅 Placed: ${formatDate(order.created_at)}\n\n` +
+      `👤 Owner: ${order.owner_name}\n` +
+      `🏢 Company: ${order.company_name}\n` +
+      `📧 Email: ${order.email}\n` +
+      `📱 Phone: ${order.phone}\n` +
+      `📍 Delivery: ${order.location}\n` +
+      `🔌 Cable PIN: ${order.cable_pin}\n` +
+      `🏷️ Stickers: ${order.stickers}\n\n` +
+      `📦 ${order.qty}× PT30 ELD @ $179 each\n` +
+      `🚚 Shipping: ${shippingLabel}\n` +
+      `💰 Total: $${order.total}\n\n` +
+      (order.tracking_link
+        ? `📬 <b>Tracking available</b>`
+        : `📬 Tracking: Not available yet`);
+
+    const keyboard = {
+      inline_keyboard: [
+        ...(order.tracking_link ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
+        [{ text: '◀️ Back', callback_data: order.status === 'active' ? 'order_active' : 'order_history_0' }],
+      ],
+    };
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  } catch (error) {
+    logger.error('orderDetail error:', error);
+    await ctx.reply('❌ Error loading order.');
+  }
+};
+
+// ─── DOT Inspection Handlers ──────────────────────────────────────────────────
+
+const dotMenu = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const total = await Inspection.count({ where: { user_id: user.id } });
+
+    if (!total) {
+      return ctx.editMessageText(
+        `🚔 <b>DOT Inspections</b>\n\nNo inspections recorded yet.\n\nYou'll receive an alert here when a driver's log is submitted to the DOT.`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]] },
+        }
+      );
+    }
+
+    const inspections = await Inspection.findAll({
+      where: { user_id: user.id },
+      order: [['inspection_date', 'DESC'], ['created_at', 'DESC']],
+      limit: 10,
+    });
+
+    await ctx.editMessageText(
+      `🚔 <b>DOT Inspections (${total})</b>\n\nShowing latest 10. Tap for details.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            ...inspections.map(i => {
+              const icon = i.violations > 0 ? '⚠️' : '✅';
+              const d = formatDate(i.inspection_date);
+              return [{ text: `${icon} ${d} — ${i.driver_name} — Level ${i.level}`, callback_data: `dot_detail_${i.id}` }];
+            }),
+            [{ text: '◀️ Back', callback_data: 'main_menu' }],
+          ],
+        },
+      }
+    );
+  } catch (error) {
+    logger.error('dotMenu error:', error);
+    await ctx.reply('❌ Error loading inspections.');
+  }
+};
+
+const dotDetail = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const inspId = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const insp = await Inspection.findOne({ where: { id: inspId, user_id: user.id } });
+    if (!insp) return ctx.editMessageText('Inspection not found.');
+
+    const vIcon = insp.violations > 0 ? '⚠️' : '✅';
+
+    const text =
+      `🚔 <b>DOT Inspection #${insp.id}</b>\n\n` +
+      `👤 Driver: ${insp.driver_name}\n` +
+      `📅 Date: ${formatDate(insp.inspection_date)}\n` +
+      (insp.report_number ? `📋 Report #: ${insp.report_number}\n` : '') +
+      (insp.level ? `📊 Level: ${insp.level}\n` : '') +
+      `⚠️ Violations: ${insp.violations} ${vIcon}\n` +
+      (insp.result ? `📝 Result: <b>${insp.result.toUpperCase()}</b>\n` : '');
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'dot_menu' }]] },
+    });
+  } catch (error) {
+    logger.error('dotDetail error:', error);
+    await ctx.reply('❌ Error loading inspection details.');
   }
 };
 
@@ -400,7 +645,6 @@ const mainMenu = async (ctx) => {
     await ctx.editMessageText(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\n` +
       `ELD Driver Monitoring &amp; Device Orders\n\n` +
-      `I'll help you monitor your drivers and manage device orders!\n\n` +
       companyLine,
       {
         parse_mode: 'HTML',
@@ -408,6 +652,7 @@ const mainMenu = async (ctx) => {
           inline_keyboard: [
             [{ text: '👥 View Drivers', callback_data: 'drivers_list' }],
             [{ text: '📦 Order Devices', callback_data: 'order_devices_start' }],
+            [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
             [{ text: '🔄 Change Team', callback_data: 'change_team' }],
             [{ text: '❓ Help', callback_data: 'help_menu' }],
           ],
@@ -429,9 +674,7 @@ const changeTeam = async (ctx) => {
       `Get your Company API Key from:\nELD portal → Settings → API Key`,
       {
         parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]],
-        },
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]] },
       }
     );
   } catch (error) {
@@ -448,13 +691,14 @@ const helpMenu = async (ctx) => {
       `/drivers - List all drivers\n` +
       `/setapi KEY - Connect your ELD company\n` +
       `/orders - Order devices\n\n` +
+      `<b>Admin commands (order group only):</b>\n` +
+      `/track ORDER_ID URL - Add tracking link\n` +
+      `/deliver ORDER_ID - Mark order as delivered\n\n` +
       `<b>How to get your Company API Key:</b>\n` +
       `ELD portal → Settings → API Key → Generate`,
       {
         parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]],
-        },
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]] },
       }
     );
   } catch (error) {
@@ -462,29 +706,16 @@ const helpMenu = async (ctx) => {
   }
 };
 
-// ─── Shared state for multi-step order flow ──────────────────────────────────
-const orderPendingCustomQty = new Map(); // telegram_id -> true
-const orderSessions = new Map();         // telegram_id -> { step, qty, shipping, total, ...fields }
+// ─── Shared state ─────────────────────────────────────────────────────────────
+const orderPendingCustomQty = new Map();
+const orderSessions = new Map();
 
 module.exports = {
-  driverDetails,
-  driverRefresh,
-  driversList,
-  driversListRefresh,
-  driverLocation,
-  orderStart,
-  orderQuantity,
-  orderShipping,
-  orderConfirm,
-  orderEdit,
-  orderCancel,
-  mainMenu,
-  changeTeam,
-  helpMenu,
-  orderPendingCustomQty,
-  orderSessions,
-  ORDER_STEPS,
-  ORDER_PROMPTS,
-  CANCEL_KB,
+  driverDetails, driverRefresh, driversList, driversListRefresh, driverLocation,
+  orderStart, orderNew, orderQuantity, orderShipping, orderConfirm, orderEdit, orderCancel,
+  orderActive, orderHistory, orderDetail,
+  dotMenu, dotDetail,
+  mainMenu, changeTeam, helpMenu,
+  orderPendingCustomQty, orderSessions, ORDER_STEPS, ORDER_PROMPTS, CANCEL_KB,
   showShippingSelection,
 };

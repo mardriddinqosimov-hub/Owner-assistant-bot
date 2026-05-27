@@ -83,4 +83,16 @@ async function reverseGeocode(lat, lon) {
   }
 }
 
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, formatSeconds, reverseGeocode };
+async function fetchInspections(companyKey) {
+  const client = makeClient(companyKey);
+  try {
+    const res = await client.get('/dot-inspections', { params: { limit: 200 } });
+    const data = res.data?.data;
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    logger.warn('fetchInspections failed:', err.response?.data?.description || err.message);
+    return [];
+  }
+}
+
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, formatSeconds, reverseGeocode };

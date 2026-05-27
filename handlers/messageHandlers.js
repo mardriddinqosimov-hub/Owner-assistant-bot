@@ -1,4 +1,6 @@
 const logger = require('../utils/logger');
+const User = require('../models/User');
+const Order = require('../models/Order');
 const {
   orderPendingCustomQty,
   orderSessions,
@@ -46,8 +48,31 @@ async function showConfirmation(ctx, session) {
 }
 
 async function completeOrder(ctx, session, fileId, type) {
-  const summary = buildOrderSummary(session, '🎉 <b>New Device Order!</b>') +
-    `\n\n👤 Telegram ID: ${ctx.from.id}`;
+  // Save to DB first so we have an order ID
+  const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+  let order = null;
+  if (user) {
+    order = await Order.create({
+      user_id:         user.id,
+      owner_name:      session.owner_name,
+      company_name:    session.company_name,
+      email:           session.email,
+      phone:           session.phone,
+      location:        session.location,
+      cable_pin:       session.cable_pin,
+      stickers:        session.stickers,
+      qty:             session.qty,
+      shipping:        session.shipping,
+      total:           session.total,
+      status:          'active',
+      payment_file_id: fileId,
+      created_at:      new Date(),
+      updated_at:      new Date(),
+    });
+  }
+
+  const title = order ? `🎉 <b>New Device Order #${order.id}!</b>` : '🎉 <b>New Device Order!</b>';
+  const summary = buildOrderSummary(session, title) + `\n\n👤 Telegram ID: ${ctx.from.id}`;
 
   if (type === 'photo') {
     await ctx.telegram.sendPhoto(ORDER_GROUP_ID, fileId, { caption: summary, parse_mode: 'HTML' });
@@ -56,12 +81,12 @@ async function completeOrder(ctx, session, fileId, type) {
   }
 
   await ctx.reply(
-    `✅ <b>Order Completed!</b>\n\n` +
+    `✅ <b>Order Completed!</b>${order ? ` (Order #${order.id})` : ''}\n\n` +
     `Your payment has been received and order placed.\n\n` +
     `We'll contact you at:\n` +
     `📧 ${session.email}\n` +
     `📱 ${session.phone}\n\n` +
-    `Thank you! Use /start to return to the menu.`,
+    `Track your order in <b>Order Devices → Active Orders</b>.\n\nUse /start to return to the menu.`,
     { parse_mode: 'HTML' }
   );
 }
