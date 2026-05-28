@@ -902,6 +902,43 @@ const dotDetail = async (ctx) => {
   }
 };
 
+// ─── Platform selection (after /setapi without prefix) ───────────────────────
+
+const pendingApiSessions = new Map(); // telegram_id → { apiKey, companyName, driversRaw }
+
+const selectPlatform = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const platform = ctx.match[1]; // 'leader' or 'factor'
+    const pending = pendingApiSessions.get(ctx.from.id);
+    if (!pending) return ctx.editMessageText('Session expired. Please run /setapi again.');
+
+    const { apiKey, companyName, driversRaw } = pending;
+    pendingApiSessions.delete(ctx.from.id);
+
+    let user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.editMessageText('Please /start first.');
+
+    await user.update({ company_api_key: apiKey, company_name: companyName, platform });
+    user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+
+    const { syncDrivers } = require('./commandHandlers');
+    const count = await syncDrivers(user, apiKey, driversRaw);
+
+    const zelleName = platform === 'factor' ? 'FACTOR ELD LLC' : 'LEADER ELD LLC';
+    await ctx.editMessageText(
+      `✅ Connected${companyName ? ` to <b>${companyName}</b>` : ''}!\n\n` +
+      `Platform: <b>${platform === 'factor' ? 'Factor ELD' : 'Leader ELD'}</b>\n` +
+      `Zelle payments will go to: <code>${zelleName}</code>\n\n` +
+      `Synced <b>${count}</b> driver${count !== 1 ? 's' : ''}. Use /start to open the menu.`,
+      { parse_mode: 'HTML' }
+    );
+  } catch (err) {
+    logger.error('selectPlatform error:', err);
+    await ctx.reply('❌ Error saving platform. Please try /setapi again.');
+  }
+};
+
 // ─── Main Menu / Help ─────────────────────────────────────────────────────────
 
 const mainMenu = async (ctx) => {
@@ -981,6 +1018,7 @@ module.exports = {
   orderActive, orderHistory, orderDetail,
   dotMenu, dotDetail,
   mainMenu, changeTeam, helpMenu,
+  selectPlatform, pendingApiSessions,
   orderPendingCustomQty, orderSessions,
   ORDER_STEPS: ORDER_QA_STEPS,
   ORDER_PROMPTS: ORDER_QA_PROMPTS,

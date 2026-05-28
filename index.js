@@ -75,6 +75,9 @@ bot.action('order_active', callbackHandlers.orderActive);
 bot.action(/^order_history_(\d+)$/, callbackHandlers.orderHistory);
 bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
 
+// ─── Platform selection ───────────────────────────────────────────────────────
+bot.action(/^platform_select_(leader|factor)$/, callbackHandlers.selectPlatform);
+
 // ─── DOT Inspection callbacks ─────────────────────────────────────────────────
 bot.action('dot_menu', callbackHandlers.dotMenu);
 bot.action(/^dot_detail_(\d+)$/, callbackHandlers.dotDetail);

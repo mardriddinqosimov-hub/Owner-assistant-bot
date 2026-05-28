@@ -144,20 +144,41 @@ const setapi = async (ctx) => {
 
   try {
     const driversRaw = await fetchDrivers(args);
-
     const info = await fetchCompanyInfo(args);
     const companyName = info?.name || info?.company_name || null;
 
-    const updateData = { company_api_key: args, company_name: companyName };
-    if (platform) updateData.platform = platform;
-    await user.update(updateData);
-    user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (platform) {
+      // Platform was specified in the command — finish immediately
+      const updateData = { company_api_key: args, company_name: companyName, platform };
+      await user.update(updateData);
+      user = await User.findOne({ where: { telegram_id: ctx.from.id } });
 
-    logger.info(`User ${ctx.from.id} connected company: ${companyName}`);
-    await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
+      logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
+      await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
+      const count = await syncDrivers(user, args, driversRaw);
+      await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.\n\nUse /start to open the menu.`);
+    } else {
+      // No platform prefix — ask user to pick
+      const { pendingApiSessions } = require('./callbackHandlers');
+      pendingApiSessions.set(ctx.from.id, { apiKey: args, companyName, driversRaw });
 
-    const count = await syncDrivers(user, args, driversRaw);
-    await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.\n\nUse /start to open the menu.`);
+      await ctx.reply(
+        `✅ Connected${companyName ? ` to <b>${companyName}</b>` : ''}!\n\n` +
+        `Which ELD platform is this company on?\n\n` +
+        `This determines your <b>Zelle payment recipient</b>.`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: 'Leader ELD', callback_data: 'platform_select_leader' },
+                { text: 'Factor ELD', callback_data: 'platform_select_factor' },
+              ],
+            ],
+          },
+        }
+      );
+    }
   } catch (err) {
     logger.error('setapi error:', err.message);
     await ctx.reply(
