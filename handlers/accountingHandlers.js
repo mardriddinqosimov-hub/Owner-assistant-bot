@@ -205,10 +205,31 @@ const MGMT_KB = {
   ],
 };
 
+async function buildMgmtMessage() {
+  const open = await getSetting('orders_open', 'true');
+  const closedMsg = await getSetting('orders_closed_message', '');
+  const statusLine = open === 'true'
+    ? `✅ Orders are currently <b>OPEN</b>`
+    : `🚫 Orders are currently <b>CLOSED</b>\n<i>"${closedMsg}"</i>`;
+
+  const toggleBtn = open === 'true'
+    ? { text: '🚫 Close Orders', callback_data: 'acct_close_prompt' }
+    : { text: '✅ Open Orders', callback_data: 'acct_open' };
+
+  const kb = {
+    inline_keyboard: [
+      [toggleBtn],
+      [{ text: '◀️ Back', callback_data: 'acct_main_menu' }],
+    ],
+  };
+  return { text: `⚙️ <b>Order Management</b>\n\n${statusLine}`, kb };
+}
+
 const acctManagement = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(`⚙️ <b>Order Management</b>`, { parse_mode: 'HTML', reply_markup: MGMT_KB });
+    const { text, kb } = await buildMgmtMessage();
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
   } catch (err) {
     logger.error('acctManagement error:', err);
   }
@@ -237,29 +258,21 @@ const acctCloseDefault = async (ctx) => {
   const msg = 'Stores are temporarily closed. Please try again later.';
   await setSetting('orders_open', 'false');
   await setSetting('orders_closed_message', msg);
-  await ctx.editMessageText(
-    `🚫 Ordering is now <b>CLOSED</b>.\n\nMessage: "${msg}"`,
-    { parse_mode: 'HTML', reply_markup: MGMT_KB }
-  );
+  const { text, kb } = await buildMgmtMessage();
+  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
 };
 
 const acctOpenCb = async (ctx) => {
   await ctx.answerCbQuery();
   await setSetting('orders_open', 'true');
-  await ctx.editMessageText(
-    `✅ Ordering is now <b>OPEN</b>. Customers can place orders again.`,
-    { parse_mode: 'HTML', reply_markup: MGMT_KB }
-  );
+  const { text, kb } = await buildMgmtMessage();
+  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
 };
 
 const acctStatusCb = async (ctx) => {
   await ctx.answerCbQuery();
-  const open = await getSetting('orders_open', 'true');
-  const msg = await getSetting('orders_closed_message', '');
-  const text = open === 'true'
-    ? `📊 Orders are currently <b>OPEN</b>.`
-    : `📊 Orders are currently <b>CLOSED</b>.\n\nMessage: "${msg}"`;
-  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: MGMT_KB });
+  const { text, kb } = await buildMgmtMessage();
+  await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: kb });
 };
 
 // ─── Order History ────────────────────────────────────────────────────────────
@@ -358,10 +371,8 @@ const acctHandleText = async (ctx) => {
   } else if (session.action === 'close') {
     await setSetting('orders_open', 'false');
     await setSetting('orders_closed_message', text);
-    await ctx.reply(
-      `🚫 Ordering is now <b>CLOSED</b>.\n\nMessage: "${text}"`,
-      { parse_mode: 'HTML', reply_markup: MAIN_KB }
-    );
+    const { text: mgmtText, kb } = await buildMgmtMessage();
+    await ctx.reply(mgmtText, { parse_mode: 'HTML', reply_markup: kb });
   }
 };
 
