@@ -116,13 +116,26 @@ function setupAccountingBot() {
   accountingBot.command('open', accountingHandlers.acctOpen);
   accountingBot.command('status', accountingHandlers.acctStatus);
 
-  accountingBot.action('acct_track_start', accountingHandlers.acctTrackStart);
-  accountingBot.action('acct_deliver_start', accountingHandlers.acctDeliverStart);
+  // Main nav
+  accountingBot.action('acct_main_menu', accountingHandlers.acctMainMenu);
+
+  // Active orders
+  accountingBot.action('acct_active_orders', accountingHandlers.acctActiveOrders);
+  accountingBot.action(/^acct_order_(\d+)$/, accountingHandlers.acctOrderDetail);
+  accountingBot.action(/^acct_add_track_(\d+)$/, accountingHandlers.acctAddTrackingStart);
+  accountingBot.action(/^acct_deliver_cb_(\d+)$/, accountingHandlers.acctDeliverCb);
+
+  // Order management
+  accountingBot.action('acct_management', accountingHandlers.acctManagement);
   accountingBot.action('acct_close_prompt', accountingHandlers.acctClosePrompt);
   accountingBot.action('acct_close_default', accountingHandlers.acctCloseDefault);
   accountingBot.action('acct_open', accountingHandlers.acctOpenCb);
   accountingBot.action('acct_status', accountingHandlers.acctStatusCb);
-  accountingBot.action('acct_cancel', accountingHandlers.acctCancel);
+
+  // Order history
+  accountingBot.action('acct_history', accountingHandlers.acctHistory);
+  accountingBot.action(/^acct_history_order_(\d+)$/, accountingHandlers.acctHistoryOrder);
+
   accountingBot.on('text', accountingHandlers.acctHandleText);
 }
 
