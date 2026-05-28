@@ -345,10 +345,6 @@ const acctHandleText = async (ctx) => {
   if (session.action === 'track') {
     const { orderId } = session;
     const trackingLink = text;
-    if (!trackingLink.startsWith('http')) {
-      return ctx.reply(`❌ That doesn't look like a URL. Please try again.`, { reply_markup: MAIN_KB });
-    }
-
     const order = await Order.findByPk(orderId);
     if (!order) return ctx.reply(`❌ Order #${orderId} not found.`, { reply_markup: MAIN_KB });
 
