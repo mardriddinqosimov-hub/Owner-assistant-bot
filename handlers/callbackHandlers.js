@@ -808,13 +808,16 @@ const orderDetail = async (ctx) => {
       itemsText + '\n' +
       `🚚 Shipping: ${shippingLabel}\n` +
       `💰 Total: $${parseFloat(order.total).toFixed(2)}\n\n` +
-      (order.tracking_link ? `📬 <b>Tracking available</b>` : `📬 Tracking: Not available yet`);
+      (order.tracking_link
+        ? `📬 <b>Tracking:</b> <code>${order.tracking_link}</code>`
+        : `📬 Tracking: Not available yet`);
 
+    const isUrl = order.tracking_link && order.tracking_link.startsWith('http');
     await ctx.editMessageText(text, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
-          ...(order.tracking_link ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
+          ...(isUrl ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
           [{ text: '◀️ Back', callback_data: order.status === 'active' ? 'order_active' : 'order_history_0' }],
         ],
       },
