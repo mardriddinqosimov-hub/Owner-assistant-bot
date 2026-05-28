@@ -8,12 +8,13 @@ function setAccountingBot(bot) { _accountingBot = bot; }
 function setMainBot(bot) { _mainBot = bot; }
 
 async function notifyAdminNewOrder(fileId, fileType, caption) {
-  if (!_accountingBot) return;
+  const sender = _accountingBot || _mainBot;
+  if (!sender) return;
   try {
     if (fileType === 'photo') {
-      await _accountingBot.telegram.sendPhoto(ADMIN_ID, fileId, { caption, parse_mode: 'HTML' });
+      await sender.telegram.sendPhoto(ADMIN_ID, fileId, { caption, parse_mode: 'HTML' });
     } else {
-      await _accountingBot.telegram.sendDocument(ADMIN_ID, fileId, { caption, parse_mode: 'HTML' });
+      await sender.telegram.sendDocument(ADMIN_ID, fileId, { caption, parse_mode: 'HTML' });
     }
   } catch (err) {
     logger.warn('Admin order notification failed:', err.message);
