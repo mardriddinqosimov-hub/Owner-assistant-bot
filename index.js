@@ -115,6 +115,15 @@ function setupAccountingBot() {
   accountingBot.command('close', accountingHandlers.acctClose);
   accountingBot.command('open', accountingHandlers.acctOpen);
   accountingBot.command('status', accountingHandlers.acctStatus);
+
+  accountingBot.action('acct_track_start', accountingHandlers.acctTrackStart);
+  accountingBot.action('acct_deliver_start', accountingHandlers.acctDeliverStart);
+  accountingBot.action('acct_close_prompt', accountingHandlers.acctClosePrompt);
+  accountingBot.action('acct_close_default', accountingHandlers.acctCloseDefault);
+  accountingBot.action('acct_open', accountingHandlers.acctOpenCb);
+  accountingBot.action('acct_status', accountingHandlers.acctStatusCb);
+  accountingBot.action('acct_cancel', accountingHandlers.acctCancel);
+  accountingBot.on('text', accountingHandlers.acctHandleText);
 }
 
 // ─── DOT inspection polling (every 10 min) ────────────────────────────────────
