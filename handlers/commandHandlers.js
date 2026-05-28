@@ -129,6 +129,8 @@ const start = async (ctx) => {
 
 const setapi = async (ctx) => {
   const rawArgs = ctx.message.text.split(' ').slice(1).join('').trim();
+  const platformMatch = rawArgs.match(/^(leader|factor)\s*[:_\-]\s*/i);
+  const platform = platformMatch ? platformMatch[1].toLowerCase() : null;
   const args = rawArgs.replace(/^(leader|factor)\s*[:_\-]\s*/i, '').trim();
 
   if (!args) {
@@ -146,7 +148,9 @@ const setapi = async (ctx) => {
     const info = await fetchCompanyInfo(args);
     const companyName = info?.name || info?.company_name || null;
 
-    await user.update({ company_api_key: args, company_name: companyName });
+    const updateData = { company_api_key: args, company_name: companyName };
+    if (platform) updateData.platform = platform;
+    await user.update(updateData);
     user = await User.findOne({ where: { telegram_id: ctx.from.id } });
 
     logger.info(`User ${ctx.from.id} connected company: ${companyName}`);

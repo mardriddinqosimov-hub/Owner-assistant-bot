@@ -3,11 +3,12 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Order = require('../models/Order');
 const Inspection = require('../models/Inspection');
+const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
 const { fetchDriverStatus, fetchVehicleStatus, formatSeconds } = require('../services/eldService');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatTime(date) {
   if (!date) return 'N/A';
@@ -61,7 +62,7 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
   }
 }
 
-// ─── Driver Handlers ─────────────────────────────────────────────────────────
+// ─── Driver Handlers ──────────────────────────────────────────────────────────
 
 const driversList = async (ctx) => {
   try {
@@ -194,8 +195,7 @@ const driverLocation = async (ctx) => {
     await ctx.editMessageText(
       `📍 <b>Last Known Location</b>\n\n` +
       (driver.location_string ? `📌 ${driver.location_string}\n\n` : '') +
-      `Latitude: ${driver.latitude}\n` +
-      `Longitude: ${driver.longitude}`,
+      `Latitude: ${driver.latitude}\nLongitude: ${driver.longitude}`,
       {
         parse_mode: 'HTML',
         reply_markup: {
@@ -212,141 +212,396 @@ const driverLocation = async (ctx) => {
   }
 };
 
-// ─── Order Flow ──────────────────────────────────────────────────────────────
+// ─── Order Constants ──────────────────────────────────────────────────────────
 
-const DEVICE_PRICE = 179;
-const OVERNIGHT_EXTRA = 100;
+const PRICES = {
+  fullset_base:     179.99,
+  fullset_overnight: 79.99,
+  pt30:             120.00,
+  cable:             29.00,
+  ship_standard:     30.99,
+  ship_overnight:    79.99,
+};
+
+const CABLE_NAMES = {
+  vm:  '16-Pin Volvo/Mack',
+  obd: '16-Pin OBD2 Box Truck',
+  rp:  '14-Pin RP1226',
+  p9:  '9-Pin Cable',
+};
+
 const HISTORY_PAGE_SIZE = 5;
 
 const CANCEL_KB = { inline_keyboard: [[{ text: '❌ Cancel Order', callback_data: 'order_cancel' }]] };
 
-const ORDER_STEPS = ['owner_name', 'company_name', 'email', 'phone', 'location', 'cable_pin', 'stickers'];
-
-const ORDER_PROMPTS = {
-  owner_name:   '👤 <b>(1/7) Owner Name</b>\n\nPlease enter the owner\'s full name:',
-  company_name: '🏢 <b>(2/7) Company Name</b>\n\nPlease enter your company name:',
-  email:        '📧 <b>(3/7) Email Address</b>\n\nPlease enter your email address:',
-  phone:        '📱 <b>(4/7) Phone Number</b>\n\nPlease enter your contact phone number:',
-  location:     '📍 <b>(5/7) Delivery Location</b>\n\nPlease enter your full delivery address:',
-  cable_pin:    '🔌 <b>(6/7) Cable PIN</b>\n\nPlease enter the Cable PIN:',
-  stickers:     '🏷️ <b>(7/7) Stickers Count</b>\n\nHow many stickers do you need?',
+const ORDER_QA_STEPS = ['owner_name', 'company_name', 'email', 'phone', 'location'];
+const ORDER_QA_PROMPTS = {
+  owner_name:   '👤 <b>(1/5) Owner Name</b>\n\nPlease enter the owner\'s full name:',
+  company_name: '🏢 <b>(2/5) Company Name</b>\n\nPlease enter your company name:',
+  email:        '📧 <b>(3/5) Email Address</b>\n\nPlease enter your email address:',
+  phone:        '📱 <b>(4/5) Phone Number</b>\n\nPlease enter your phone number:',
+  location:     '📍 <b>(5/5) Delivery Address</b>\n\nPlease enter your full delivery address:',
 };
 
-// order_devices_start → submenu
+function computeFullSetTotal(sets, shipping) {
+  return parseFloat((sets * PRICES.fullset_base + (shipping === 'overnight' ? PRICES.fullset_overnight : 0)).toFixed(2));
+}
+
+function computeCustomTotal(items, shipping) {
+  const cables = (items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0);
+  const itemCost = (items.pt30 || 0) * PRICES.pt30 + cables * PRICES.cable;
+  const shipCost = shipping === 'overnight' ? PRICES.ship_overnight : PRICES.ship_standard;
+  return parseFloat((itemCost + shipCost).toFixed(2));
+}
+
+function orderListLabel(o) {
+  try {
+    const items = JSON.parse(o.items || '{}');
+    if (items.type === 'fullset') return `Full Set ×${items.sets}`;
+    if (items.type === 'custom') {
+      const parts = [];
+      if (items.pt30 > 0) parts.push(`${items.pt30}× PT30`);
+      const cables = ['vm', 'obd', 'rp', 'p9'].reduce((s, k) => s + (items[k] || 0), 0);
+      if (cables > 0) parts.push(`${cables}× Cable`);
+      return parts.join(' + ');
+    }
+  } catch {}
+  return `${o.qty}× PT30`;
+}
+
+// ─── Shared order session state ───────────────────────────────────────────────
+const orderPendingCustomQty = new Map();
+const orderSessions = new Map();
+
+// ─── Order: Submenu ───────────────────────────────────────────────────────────
+
 const orderStart = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     const activeCount = user ? await Order.count({ where: { user_id: user.id, status: 'active' } }) : 0;
 
-    await ctx.editMessageText(
-      `📦 <b>Device Orders</b>\n\nWhat would you like to do?`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '📦 New Order', callback_data: 'order_new' }],
-            [{ text: `📋 Active Orders${activeCount ? ` (${activeCount})` : ''}`, callback_data: 'order_active' }],
-            [{ text: '📜 Order History', callback_data: 'order_history_0' }],
-            [{ text: '◀️ Back', callback_data: 'main_menu' }],
-          ],
-        },
-      }
-    );
-  } catch (error) {
-    logger.error('orderStart error:', error);
-    await ctx.reply('❌ Error.');
+    await ctx.editMessageText(`📦 <b>Device Orders</b>\n\nWhat would you like to do?`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📦 New Order', callback_data: 'order_new' }],
+          [{ text: `📋 Active Orders${activeCount ? ` (${activeCount})` : ''}`, callback_data: 'order_active' }],
+          [{ text: '📜 Order History', callback_data: 'order_history_0' }],
+          [{ text: '◀️ Back', callback_data: 'main_menu' }],
+        ],
+      },
+    });
+  } catch (err) {
+    logger.error('orderStart error:', err);
   }
 };
 
-// order_new → qty selection
+// ─── Order: New → Full Set | Custom ──────────────────────────────────────────
+
 const orderNew = async (ctx) => {
   try {
     await ctx.answerCbQuery();
+
+    const ordersOpen = await getSetting('orders_open', 'true');
+    if (ordersOpen !== 'true') {
+      const msg = await getSetting('orders_closed_message', 'Stores are temporarily unavailable. Please try again later.');
+      return ctx.editMessageText(
+        `🚫 <b>Orders Unavailable</b>\n\n${msg}`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_devices_start' }]] },
+        }
+      );
+    }
+
     await ctx.editMessageText(
-      `📦 <b>New Order</b>\n\nPlease select quantity:`,
+      `📦 <b>New Order</b>\n\nChoose order type:`,
       {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: `1x PT30 ($${DEVICE_PRICE})`, callback_data: 'order_qty_1' }],
-            [{ text: `2x PT30 ($${DEVICE_PRICE * 2})`, callback_data: 'order_qty_2' }],
-            [{ text: `3x PT30 ($${DEVICE_PRICE * 3})`, callback_data: 'order_qty_3' }],
-            [{ text: 'Custom quantity', callback_data: 'order_qty_custom' }],
+            [{ text: '🎯 Full Set ($179.99)', callback_data: 'order_fullset' }],
+            [{ text: '🛒 Custom Quantity', callback_data: 'order_custom' }],
             [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
           ],
         },
       }
     );
-  } catch (error) {
-    logger.error('orderNew error:', error);
+  } catch (err) {
+    logger.error('orderNew error:', err);
     await ctx.reply('❌ Error.');
   }
 };
 
-const orderQuantity = async (ctx) => {
+// ─── Order: Full Set Flow ─────────────────────────────────────────────────────
+
+const orderFullSet = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const raw = ctx.match[1];
-
-    if (raw === 'custom') {
-      orderPendingCustomQty.set(ctx.from.id, true);
-      await ctx.editMessageText(
-        `📦 <b>Custom Quantity</b>\n\nHow many PT30 devices do you need?\n\nReply with a number (e.g. <code>5</code>)`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'order_new' }]] },
-        }
-      );
-      return;
-    }
-
-    const qty = parseInt(raw, 10);
-    if (!qty || qty < 1) return ctx.answerCbQuery('Invalid quantity');
-    await showShippingSelection(ctx, qty, true);
-  } catch (error) {
-    logger.error('orderQuantity error:', error);
+    await ctx.editMessageText(
+      `🎯 <b>Full Set — $179.99</b>\n\n` +
+      `Includes: 1× PT30 Device + 1× Cable + Stickers\n` +
+      `Standard shipping included\n\n` +
+      `Select cable type:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🚛 16-Pin Volvo/Mack', callback_data: 'fs_cable_vm' }],
+            [{ text: '📦 16-Pin OBD2 Box Truck', callback_data: 'fs_cable_obd' }],
+            [{ text: '🔧 14-Pin RP1226', callback_data: 'fs_cable_rp' }],
+            [{ text: '🔌 9-Pin Cable', callback_data: 'fs_cable_p9' }],
+            [{ text: '◀️ Back', callback_data: 'order_new' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('orderFullSet error:', err);
     await ctx.reply('❌ Error.');
   }
 };
 
-async function showShippingSelection(ctx, qty, edit = true) {
-  const subtotal = qty * DEVICE_PRICE;
+const fsSelectCable = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const cableType = ctx.match[1];
+
+    let session = orderSessions.get(ctx.from.id) || {};
+    session = { type: 'fullset', cable_type: cableType };
+    orderSessions.set(ctx.from.id, session);
+
+    const cableName = CABLE_NAMES[cableType];
+    await ctx.editMessageText(
+      `🎯 <b>Full Set — ${cableName}</b>\n\nHow many sets?`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [1, 2, 3, 4, 5].map(n => ({ text: String(n), callback_data: `fs_cnt_${n}` })),
+            [6, 7, 8, 9].map(n => ({ text: String(n), callback_data: `fs_cnt_${n}` })),
+            [{ text: '◀️ Back', callback_data: 'order_fullset' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('fsSelectCable error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const fsSelectCount = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const sets = parseInt(ctx.match[1], 10);
+
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'fullset') return ctx.reply('Session expired. Use /start.');
+    session.sets = sets;
+
+    const cableName = CABLE_NAMES[session.cable_type];
+    const baseTotal  = (sets * PRICES.fullset_base).toFixed(2);
+    const ovnTotal   = (sets * PRICES.fullset_base + PRICES.fullset_overnight).toFixed(2);
+
+    await ctx.editMessageText(
+      `🎯 <b>Full Set × ${sets}</b>\nCable: ${cableName}\n\nSelect shipping:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `🚚 Standard (included) — Total $${baseTotal}`, callback_data: 'fs_shp_s' }],
+            [{ text: `🚀 Overnight (+$79.99) — Total $${ovnTotal}`, callback_data: 'fs_shp_o' }],
+            [{ text: '◀️ Back', callback_data: 'order_fullset' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('fsSelectCount error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const fsSelectShipping = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const shipping = ctx.match[1] === 'o' ? 'overnight' : 'standard';
+
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'fullset') return ctx.reply('Session expired. Use /start.');
+
+    session.shipping = shipping;
+    session.total = computeFullSetTotal(session.sets, shipping);
+    session.step = 'owner_name';
+
+    await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+  } catch (err) {
+    logger.error('fsSelectShipping error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+// ─── Order: Custom Cart Flow ──────────────────────────────────────────────────
+
+async function renderCustomCart(ctx, session) {
+  const items = session.items;
+  const subtotal = (items.pt30 || 0) * PRICES.pt30 +
+    ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable;
+
+  let summary = '';
+  if (items.pt30 > 0) summary += `📱 ${items.pt30}× PT30 Device @ $${PRICES.pt30} = $${(items.pt30 * PRICES.pt30).toFixed(2)}\n`;
+  for (const [k, n] of Object.entries(CABLE_NAMES)) {
+    if ((items[k] || 0) > 0) summary += `🔌 ${items[k]}× ${n} @ $${PRICES.cable} = $${(items[k] * PRICES.cable).toFixed(2)}\n`;
+  }
+
   const text =
-    `📦 <b>Select Shipping</b>\n\n` +
-    `${qty}x PT30 = $${subtotal}\n\n` +
-    `Choose shipping method:`;
+    `🛒 <b>Custom Order</b>\n\n` +
+    (summary || 'No items selected yet.\n') +
+    `\n<b>Subtotal: $${subtotal.toFixed(2)}</b> (+ shipping)`;
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: '🚚 Standard (FREE)', callback_data: `order_ship_standard_${qty}` }],
-      [{ text: '🚀 Overnight (+$100)', callback_data: `order_ship_overnight_${qty}` }],
+      [{ text: `📱 PT30 Device $120${items.pt30 > 0 ? ` [×${items.pt30}]` : ''}`, callback_data: 'cu_item_pt30' }],
+      [{ text: `🚛 Volvo/Mack Cable $29${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
+      [{ text: `📦 OBD2 Box Truck $29${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
+      [{ text: `🔧 RP1226 Cable $29${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
+      [{ text: `🔌 9-Pin Cable $29${items.p9 > 0 ? ` [×${items.p9}]` : ''}`, callback_data: 'cu_item_p9' }],
+      ...(subtotal > 0 ? [[{ text: '🚚 Select Shipping →', callback_data: 'cu_shipping' }]] : []),
       [{ text: '◀️ Back', callback_data: 'order_new' }],
     ],
   };
 
-  if (edit) {
+  try {
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } else {
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  } catch (err) {
+    if (!err.message?.includes('message is not modified')) throw err;
   }
 }
 
-const orderShipping = async (ctx) => {
+const orderCustom = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const [, shipping, qtyStr] = ctx.match;
-    const qty = parseInt(qtyStr, 10);
-    const total = qty * DEVICE_PRICE + (shipping === 'overnight' ? OVERNIGHT_EXTRA : 0);
+    const userId = ctx.from.id;
+    let session = orderSessions.get(userId);
 
-    orderSessions.set(ctx.from.id, { step: 'owner_name', qty, shipping, total });
+    if (!session || session.type !== 'custom' || session.step !== 'cart') {
+      session = { type: 'custom', step: 'cart', items: { pt30: 0, vm: 0, obd: 0, rp: 0, p9: 0 } };
+      orderSessions.set(userId, session);
+    }
 
-    await ctx.editMessageText(ORDER_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
-  } catch (error) {
-    logger.error('orderShipping error:', error);
+    await renderCustomCart(ctx, session);
+  } catch (err) {
+    logger.error('orderCustom error:', err);
     await ctx.reply('❌ Error.');
   }
 };
+
+const cuSelectItem = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const item = ctx.match[1];
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'custom') return ctx.reply('Session expired. Use /start.');
+
+    const current = session.items[item] || 0;
+    const ITEM_DISPLAY = {
+      pt30: 'PT30 Device ($120 each)',
+      vm:   '16-Pin Volvo/Mack Cable ($29 each)',
+      obd:  '16-Pin OBD2 Box Truck Cable ($29 each)',
+      rp:   '14-Pin RP1226 Cable ($29 each)',
+      p9:   '9-Pin Cable ($29 each)',
+    };
+
+    await ctx.editMessageText(
+      `🔢 <b>${ITEM_DISPLAY[item]}</b>\n\nCurrent: <b>${current}</b>\nSelect quantity:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [1, 2, 3, 4, 5].map(n => ({ text: n === current ? `✓${n}` : String(n), callback_data: `cu_qty_${item}_${n}` })),
+            [6, 7, 8, 9].map(n => ({ text: n === current ? `✓${n}` : String(n), callback_data: `cu_qty_${item}_${n}` })),
+            [{ text: '0 — Remove', callback_data: `cu_qty_${item}_0` }],
+            [{ text: '◀️ Back to Cart', callback_data: 'order_custom' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('cuSelectItem error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const cuSetQty = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const [, item, qtyStr] = ctx.match;
+    const qty = parseInt(qtyStr, 10);
+
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'custom') return ctx.reply('Session expired. Use /start.');
+
+    session.items[item] = qty;
+    await renderCustomCart(ctx, session);
+  } catch (err) {
+    logger.error('cuSetQty error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const cuShowShipping = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'custom') return ctx.reply('Session expired. Use /start.');
+
+    const items = session.items;
+    const subtotal = (items.pt30 || 0) * PRICES.pt30 +
+      ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable;
+    const totalStd = (subtotal + PRICES.ship_standard).toFixed(2);
+    const totalOvn = (subtotal + PRICES.ship_overnight).toFixed(2);
+
+    await ctx.editMessageText(
+      `🚚 <b>Select Shipping</b>\n\nItems subtotal: $${subtotal.toFixed(2)}`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `🚚 Standard ($30.99) — Total $${totalStd}`, callback_data: 'cu_ship_s' }],
+            [{ text: `🚀 Overnight ($79.99) — Total $${totalOvn}`, callback_data: 'cu_ship_o' }],
+            [{ text: '◀️ Back to Cart', callback_data: 'order_custom' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('cuShowShipping error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+const cuSelectShipping = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const shipping = ctx.match[1] === 'o' ? 'overnight' : 'standard';
+
+    const session = orderSessions.get(ctx.from.id);
+    if (!session || session.type !== 'custom') return ctx.reply('Session expired. Use /start.');
+
+    session.shipping = shipping;
+    session.total = computeCustomTotal(session.items, shipping);
+    session.step = 'owner_name';
+
+    await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+  } catch (err) {
+    logger.error('cuSelectShipping error:', err);
+    await ctx.reply('❌ Error.');
+  }
+};
+
+// ─── Order: Q&A shared handlers ───────────────────────────────────────────────
 
 const orderConfirm = async (ctx) => {
   try {
@@ -355,18 +610,21 @@ const orderConfirm = async (ctx) => {
     if (!session) return ctx.reply('Session expired. Please /start again.');
 
     session.step = 'payment';
-    const zelleAddress = process.env.ZELLE_ADDRESS || 'LEADER ELD LLC';
+
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    const platform = user?.platform || 'leader';
+    const zelleName = platform === 'factor' ? 'FACTOR ELD LLC' : 'LEADER ELD LLC';
 
     await ctx.editMessageText(
       `💳 <b>Payment Required</b>\n\n` +
-      `Amount due: <b>$${session.total}</b>\n\n` +
+      `Amount due: <b>$${parseFloat(session.total).toFixed(2)}</b>\n\n` +
       `Please send payment via <b>Zelle</b>:\n` +
-      `📲 <code>${zelleAddress}</code>\n\n` +
+      `📲 <code>${zelleName}</code>\n\n` +
       `After payment, send a <b>photo or PDF</b> of your payment screenshot here.`,
       { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
-  } catch (error) {
-    logger.error('orderConfirm error:', error);
+  } catch (err) {
+    logger.error('orderConfirm error:', err);
     await ctx.reply('❌ Error.');
   }
 };
@@ -378,14 +636,14 @@ const orderEdit = async (ctx) => {
     if (!session) return ctx.reply('Session expired. Please /start again.');
 
     session.step = 'owner_name';
-    ORDER_STEPS.forEach(k => delete session[k]);
+    ORDER_QA_STEPS.forEach(k => delete session[k]);
 
     await ctx.editMessageText(
-      `✏️ Let's re-enter your details.\n\n` + ORDER_PROMPTS.owner_name,
+      `✏️ Let's re-enter your details.\n\n` + ORDER_QA_PROMPTS.owner_name,
       { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
-  } catch (error) {
-    logger.error('orderEdit error:', error);
+  } catch (err) {
+    logger.error('orderEdit error:', err);
     await ctx.reply('❌ Error.');
   }
 };
@@ -401,13 +659,14 @@ const orderCancel = async (ctx) => {
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Orders', callback_data: 'order_devices_start' }]] },
       }
     );
-  } catch (error) {
-    logger.error('orderCancel error:', error);
+  } catch (err) {
+    logger.error('orderCancel error:', err);
     await ctx.reply('Order cancelled.');
   }
 };
 
-// Active orders list
+// ─── Order: Active / History / Detail ─────────────────────────────────────────
+
 const orderActive = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -436,7 +695,7 @@ const orderActive = async (ctx) => {
         reply_markup: {
           inline_keyboard: [
             ...orders.map(o => [{
-              text: `📦 Order #${o.id} — ${o.qty}× PT30 — $${o.total} — ${formatDate(o.created_at)}`,
+              text: `📦 #${o.id} — ${orderListLabel(o)} — $${parseFloat(o.total).toFixed(2)} — ${formatDate(o.created_at)}`,
               callback_data: `order_detail_${o.id}`,
             }]),
             [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
@@ -444,13 +703,12 @@ const orderActive = async (ctx) => {
         },
       }
     );
-  } catch (error) {
-    logger.error('orderActive error:', error);
+  } catch (err) {
+    logger.error('orderActive error:', err);
     await ctx.reply('❌ Error loading active orders.');
   }
 };
 
-// Order history (paginated)
 const orderHistory = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -489,8 +747,8 @@ const orderHistory = async (ctx) => {
         reply_markup: {
           inline_keyboard: [
             ...orders.map(o => {
-              const statusIcon = o.status === 'delivered' ? '✅' : '🔄';
-              return [{ text: `${statusIcon} #${o.id} — ${o.qty}× PT30 — $${o.total} — ${formatDate(o.created_at)}`, callback_data: `order_detail_${o.id}` }];
+              const icon = o.status === 'delivered' ? '✅' : '🔄';
+              return [{ text: `${icon} #${o.id} — ${orderListLabel(o)} — $${parseFloat(o.total).toFixed(2)} — ${formatDate(o.created_at)}`, callback_data: `order_detail_${o.id}` }];
             }),
             ...(navRow.length ? [navRow] : []),
             [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
@@ -498,13 +756,12 @@ const orderHistory = async (ctx) => {
         },
       }
     );
-  } catch (error) {
-    logger.error('orderHistory error:', error);
+  } catch (err) {
+    logger.error('orderHistory error:', err);
     await ctx.reply('❌ Error loading order history.');
   }
 };
 
-// Order detail view
 const orderDetail = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -515,10 +772,29 @@ const orderDetail = async (ctx) => {
     const order = await Order.findOne({ where: { id: orderId, user_id: user.id } });
     if (!order) return ctx.editMessageText('Order not found.');
 
-    const shippingLabel = order.shipping === 'overnight' ? 'Overnight (+$100)' : 'Standard (FREE)';
-    const statusLine = order.status === 'delivered'
-      ? '✅ <b>Delivered</b>'
-      : '🔄 <b>Active</b> (awaiting delivery)';
+    const statusLine = order.status === 'delivered' ? '✅ <b>Delivered</b>' : '🔄 <b>Active</b> (awaiting delivery)';
+
+    let itemsText = '';
+    try {
+      const items = JSON.parse(order.items || '{}');
+      if (items.type === 'fullset') {
+        itemsText = `🎯 ${items.sets}× Full Set\nCable: ${CABLE_NAMES[items.cable_type] || items.cable_type}\nStickers: included\n`;
+      } else if (items.type === 'custom') {
+        if (items.pt30 > 0) itemsText += `📱 ${items.pt30}× PT30 Device @ $120\n`;
+        for (const [k, n] of Object.entries(CABLE_NAMES)) {
+          if ((items[k] || 0) > 0) itemsText += `🔌 ${items[k]}× ${n} @ $29\n`;
+        }
+      } else {
+        itemsText = `📦 ${order.qty}× PT30 ELD\n`;
+        if (order.cable_pin) itemsText += `🔌 Cable PIN: ${order.cable_pin}\n`;
+        if (order.stickers) itemsText += `🏷️ Stickers: ${order.stickers}\n`;
+      }
+    } catch {
+      itemsText = `📦 ${order.qty}× PT30 ELD\n`;
+    }
+
+    const shippingLabel = order.shipping === 'overnight' ? 'Overnight (+$79.99)' :
+      order.shipping === 'standard' ? 'Standard ($30.99)' : 'Standard (included)';
 
     const text =
       `📦 <b>Order #${order.id}</b>\n\n` +
@@ -528,26 +804,23 @@ const orderDetail = async (ctx) => {
       `🏢 Company: ${order.company_name}\n` +
       `📧 Email: ${order.email}\n` +
       `📱 Phone: ${order.phone}\n` +
-      `📍 Delivery: ${order.location}\n` +
-      `🔌 Cable PIN: ${order.cable_pin}\n` +
-      `🏷️ Stickers: ${order.stickers}\n\n` +
-      `📦 ${order.qty}× PT30 ELD @ $179 each\n` +
+      `📍 Delivery: ${order.location}\n\n` +
+      itemsText + '\n' +
       `🚚 Shipping: ${shippingLabel}\n` +
-      `💰 Total: $${order.total}\n\n` +
-      (order.tracking_link
-        ? `📬 <b>Tracking available</b>`
-        : `📬 Tracking: Not available yet`);
+      `💰 Total: $${parseFloat(order.total).toFixed(2)}\n\n` +
+      (order.tracking_link ? `📬 <b>Tracking available</b>` : `📬 Tracking: Not available yet`);
 
-    const keyboard = {
-      inline_keyboard: [
-        ...(order.tracking_link ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
-        [{ text: '◀️ Back', callback_data: order.status === 'active' ? 'order_active' : 'order_history_0' }],
-      ],
-    };
-
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: keyboard });
-  } catch (error) {
-    logger.error('orderDetail error:', error);
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          ...(order.tracking_link ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
+          [{ text: '◀️ Back', callback_data: order.status === 'active' ? 'order_active' : 'order_history_0' }],
+        ],
+      },
+    });
+  } catch (err) {
+    logger.error('orderDetail error:', err);
     await ctx.reply('❌ Error loading order.');
   }
 };
@@ -586,16 +859,15 @@ const dotMenu = async (ctx) => {
           inline_keyboard: [
             ...inspections.map(i => {
               const icon = i.violations > 0 ? '⚠️' : '✅';
-              const d = formatDate(i.inspection_date);
-              return [{ text: `${icon} ${d} — ${i.driver_name} — Level ${i.level}`, callback_data: `dot_detail_${i.id}` }];
+              return [{ text: `${icon} ${formatDate(i.inspection_date)} — ${i.driver_name} — Level ${i.level}`, callback_data: `dot_detail_${i.id}` }];
             }),
             [{ text: '◀️ Back', callback_data: 'main_menu' }],
           ],
         },
       }
     );
-  } catch (error) {
-    logger.error('dotMenu error:', error);
+  } catch (err) {
+    logger.error('dotMenu error:', err);
     await ctx.reply('❌ Error loading inspections.');
   }
 };
@@ -611,7 +883,6 @@ const dotDetail = async (ctx) => {
     if (!insp) return ctx.editMessageText('Inspection not found.');
 
     const vIcon = insp.violations > 0 ? '⚠️' : '✅';
-
     const text =
       `🚔 <b>DOT Inspection #${insp.id}</b>\n\n` +
       `👤 Driver: ${insp.driver_name}\n` +
@@ -625,8 +896,8 @@ const dotDetail = async (ctx) => {
       parse_mode: 'HTML',
       reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'dot_menu' }]] },
     });
-  } catch (error) {
-    logger.error('dotDetail error:', error);
+  } catch (err) {
+    logger.error('dotDetail error:', err);
     await ctx.reply('❌ Error loading inspection details.');
   }
 };
@@ -643,9 +914,7 @@ const mainMenu = async (ctx) => {
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
     await ctx.editMessageText(
-      `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\n` +
-      `ELD Driver Monitoring &amp; Device Orders\n\n` +
-      companyLine,
+      `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\nELD Driver Monitoring &amp; Device Orders\n\n${companyLine}`,
       {
         parse_mode: 'HTML',
         reply_markup: {
@@ -659,8 +928,8 @@ const mainMenu = async (ctx) => {
         },
       }
     );
-  } catch (error) {
-    logger.error('mainMenu error:', error);
+  } catch (err) {
+    logger.error('mainMenu error:', err);
   }
 };
 
@@ -677,8 +946,8 @@ const changeTeam = async (ctx) => {
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]] },
       }
     );
-  } catch (error) {
-    logger.error('changeTeam error:', error);
+  } catch (err) {
+    logger.error('changeTeam error:', err);
   }
 };
 
@@ -687,13 +956,10 @@ const helpMenu = async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
       `❓ <b>Help</b>\n\n` +
-      `/start - Open main menu\n` +
-      `/drivers - List all drivers\n` +
-      `/setapi KEY - Connect your ELD company\n` +
-      `/orders - Order devices\n\n` +
-      `<b>Admin commands (order group only):</b>\n` +
-      `/track ORDER_ID URL - Add tracking link\n` +
-      `/deliver ORDER_ID - Mark order as delivered\n\n` +
+      `/start — Open main menu\n` +
+      `/drivers — List all drivers\n` +
+      `/setapi KEY — Connect your ELD company\n` +
+      `/orders — Order devices\n\n` +
       `<b>How to get your Company API Key:</b>\n` +
       `ELD portal → Settings → API Key → Generate`,
       {
@@ -701,21 +967,22 @@ const helpMenu = async (ctx) => {
         reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'main_menu' }]] },
       }
     );
-  } catch (error) {
-    logger.error('helpMenu error:', error);
+  } catch (err) {
+    logger.error('helpMenu error:', err);
   }
 };
 
-// ─── Shared state ─────────────────────────────────────────────────────────────
-const orderPendingCustomQty = new Map();
-const orderSessions = new Map();
-
 module.exports = {
   driverDetails, driverRefresh, driversList, driversListRefresh, driverLocation,
-  orderStart, orderNew, orderQuantity, orderShipping, orderConfirm, orderEdit, orderCancel,
+  orderStart, orderNew,
+  orderFullSet, fsSelectCable, fsSelectCount, fsSelectShipping,
+  orderCustom, cuSelectItem, cuSetQty, cuShowShipping, cuSelectShipping,
+  orderConfirm, orderEdit, orderCancel,
   orderActive, orderHistory, orderDetail,
   dotMenu, dotDetail,
   mainMenu, changeTeam, helpMenu,
-  orderPendingCustomQty, orderSessions, ORDER_STEPS, ORDER_PROMPTS, CANCEL_KB,
-  showShippingSelection,
+  orderPendingCustomQty, orderSessions,
+  ORDER_STEPS: ORDER_QA_STEPS,
+  ORDER_PROMPTS: ORDER_QA_PROMPTS,
+  CANCEL_KB,
 };

@@ -2,15 +2,18 @@ require('dotenv').config();
 const { Telegraf } = require('telegraf');
 const logger = require('./utils/logger');
 const database = require('./config/database');
+const { Setting } = require('./models/Setting');
 const Order = require('./models/Order');
+const User = require('./models/User');
 const commandHandlers = require('./handlers/commandHandlers');
 const callbackHandlers = require('./handlers/callbackHandlers');
 const messageHandlers = require('./handlers/messageHandlers');
-
-const User = require('./models/User');
+const accountingHandlers = require('./handlers/accountingHandlers');
+const notifService = require('./services/notificationService');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
+const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
 
 async function initDatabase() {
   try {
@@ -33,70 +36,38 @@ bot.use(async (ctx, next) => {
   }
 });
 
-// ─── Commands ────────────────────────────────────────────────────────────────
+// ─── Main bot commands ────────────────────────────────────────────────────────
 bot.start(commandHandlers.start);
 bot.command('drivers', commandHandlers.drivers);
 bot.command('help', commandHandlers.help);
 bot.command('setapi', commandHandlers.setapi);
 bot.command('orders', commandHandlers.orders);
 
-// Admin commands — only accepted from the order group
-bot.command('track', async (ctx) => {
-  if (String(ctx.chat.id) !== ORDER_GROUP_ID) return;
-  const parts = ctx.message.text.split(' ');
-  if (parts.length < 3) return ctx.reply('Usage: /track ORDER_ID TRACKING_URL');
-  const orderId = parseInt(parts[1], 10);
-  const trackingLink = parts.slice(2).join(' ').trim();
-  if (!orderId || !trackingLink) return ctx.reply('Usage: /track ORDER_ID TRACKING_URL');
-  const order = await Order.findByPk(orderId);
-  if (!order) return ctx.reply(`Order #${orderId} not found.`);
-  await order.update({ tracking_link: trackingLink, updated_at: new Date() });
-  await ctx.reply(`✅ Tracking link added to Order #${orderId}.`);
-  try {
-    const owner = await User.findByPk(order.user_id);
-    if (owner) {
-      await bot.telegram.sendMessage(
-        owner.telegram_id,
-        `📬 <b>Tracking Update — Order #${orderId}</b>\n\nYour order is on its way!\n\n` +
-        `<a href="${trackingLink}">🔗 Track your package</a>`,
-        { parse_mode: 'HTML' }
-      );
-    }
-  } catch (_) {}
-});
-
-bot.command('deliver', async (ctx) => {
-  if (String(ctx.chat.id) !== ORDER_GROUP_ID) return;
-  const orderId = parseInt(ctx.message.text.split(' ')[1], 10);
-  if (!orderId) return ctx.reply('Usage: /deliver ORDER_ID');
-  const order = await Order.findByPk(orderId);
-  if (!order) return ctx.reply(`Order #${orderId} not found.`);
-  await order.update({ status: 'delivered', updated_at: new Date() });
-  await ctx.reply(`✅ Order #${orderId} marked as delivered.`);
-  try {
-    const owner = await User.findByPk(order.user_id);
-    if (owner) {
-      await bot.telegram.sendMessage(
-        owner.telegram_id,
-        `🎉 <b>Order #${orderId} Delivered!</b>\n\nYour PT30 device(s) have been delivered.\n\nThank you for your order!`,
-        { parse_mode: 'HTML' }
-      );
-    }
-  } catch (_) {}
-});
-
-// ─── Driver callbacks ────────────────────────────────────────────────────────
+// ─── Driver callbacks ─────────────────────────────────────────────────────────
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
 bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
 bot.action(/^driver_location_(.+)$/, callbackHandlers.driverLocation);
 bot.action('drivers_list', callbackHandlers.driversList);
 bot.action('drivers_list_refresh', callbackHandlers.driversListRefresh);
 
-// ─── Order callbacks ─────────────────────────────────────────────────────────
+// ─── Order submenu ────────────────────────────────────────────────────────────
 bot.action('order_devices_start', callbackHandlers.orderStart);
 bot.action('order_new', callbackHandlers.orderNew);
-bot.action(/^order_qty_(.+)$/, callbackHandlers.orderQuantity);
-bot.action(/^order_ship_(standard|overnight)_(\d+)$/, callbackHandlers.orderShipping);
+
+// Full Set flow
+bot.action('order_fullset', callbackHandlers.orderFullSet);
+bot.action(/^fs_cable_(vm|obd|rp|p9)$/, callbackHandlers.fsSelectCable);
+bot.action(/^fs_cnt_(\d+)$/, callbackHandlers.fsSelectCount);
+bot.action(/^fs_shp_(s|o)$/, callbackHandlers.fsSelectShipping);
+
+// Custom cart flow
+bot.action('order_custom', callbackHandlers.orderCustom);
+bot.action(/^cu_item_(pt30|vm|obd|rp|p9)$/, callbackHandlers.cuSelectItem);
+bot.action(/^cu_qty_(pt30|vm|obd|rp|p9)_(\d+)$/, callbackHandlers.cuSetQty);
+bot.action('cu_shipping', callbackHandlers.cuShowShipping);
+bot.action(/^cu_ship_(s|o)$/, callbackHandlers.cuSelectShipping);
+
+// Order management
 bot.action('order_confirm', callbackHandlers.orderConfirm);
 bot.action('order_edit', callbackHandlers.orderEdit);
 bot.action('order_cancel', callbackHandlers.orderCancel);
@@ -108,17 +79,42 @@ bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
 bot.action('dot_menu', callbackHandlers.dotMenu);
 bot.action(/^dot_detail_(\d+)$/, callbackHandlers.dotDetail);
 
-// ─── Menu callbacks ──────────────────────────────────────────────────────────
+// ─── Menu callbacks ───────────────────────────────────────────────────────────
 bot.action('main_menu', callbackHandlers.mainMenu);
 bot.action('change_team', callbackHandlers.changeTeam);
 bot.action('help_menu', callbackHandlers.helpMenu);
 
-// ─── Messages ────────────────────────────────────────────────────────────────
+// ─── Messages ─────────────────────────────────────────────────────────────────
 bot.on('text', messageHandlers.handleText);
 bot.on('photo', messageHandlers.handlePhoto);
 bot.on('document', messageHandlers.handleDocument);
 
-// ─── DOT Inspection polling (every 10 minutes) ────────────────────────────────
+// ─── Accounting bot ───────────────────────────────────────────────────────────
+let accountingBot = null;
+
+function setupAccountingBot() {
+  if (!process.env.ACCOUNTING_BOT_TOKEN) {
+    logger.warn('ACCOUNTING_BOT_TOKEN not set — accounting bot disabled');
+    return;
+  }
+
+  accountingBot = new Telegraf(process.env.ACCOUNTING_BOT_TOKEN);
+
+  // Only allow the designated admin
+  accountingBot.use(async (ctx, next) => {
+    if (String(ctx.from?.id) !== String(ADMIN_ID)) return;
+    return next();
+  });
+
+  accountingBot.command('start', accountingHandlers.acctStart);
+  accountingBot.command('track', accountingHandlers.acctTrack);
+  accountingBot.command('deliver', accountingHandlers.acctDeliver);
+  accountingBot.command('close', accountingHandlers.acctClose);
+  accountingBot.command('open', accountingHandlers.acctOpen);
+  accountingBot.command('status', accountingHandlers.acctStatus);
+}
+
+// ─── DOT inspection polling (every 10 min) ────────────────────────────────────
 function startInspectionPolling() {
   const INTERVAL = 10 * 60 * 1000;
   const run = () => commandHandlers.checkNewInspections(bot).catch(e => logger.warn('Inspection poll error:', e.message));
@@ -129,6 +125,11 @@ function startInspectionPolling() {
 async function startBot() {
   try {
     await initDatabase();
+    setupAccountingBot();
+
+    // Wire notification service
+    notifService.setMainBot(bot);
+    if (accountingBot) notifService.setAccountingBot(accountingBot);
 
     if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_URL) {
       const express = require('express');
@@ -146,7 +147,14 @@ async function startBot() {
     } else {
       await bot.telegram.deleteWebhook();
       bot.launch();
-      logger.info('✅ Bot polling started');
+      logger.info('✅ Main bot polling started');
+    }
+
+    // Accounting bot always uses polling (internal tool)
+    if (accountingBot) {
+      await accountingBot.telegram.deleteWebhook();
+      accountingBot.launch();
+      logger.info('✅ Accounting bot polling started');
     }
 
     startInspectionPolling();
@@ -157,8 +165,16 @@ async function startBot() {
   }
 }
 
-process.once('SIGINT', () => { bot.stop('SIGINT'); process.exit(0); });
-process.once('SIGTERM', () => { bot.stop('SIGTERM'); process.exit(0); });
+process.once('SIGINT', () => {
+  bot.stop('SIGINT');
+  if (accountingBot) accountingBot.stop('SIGINT');
+  process.exit(0);
+});
+process.once('SIGTERM', () => {
+  bot.stop('SIGTERM');
+  if (accountingBot) accountingBot.stop('SIGTERM');
+  process.exit(0);
+});
 
 startBot();
 module.exports = bot;

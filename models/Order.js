@@ -13,8 +13,10 @@ const Order = sequelize.define('Order', {
   stickers:        { type: DataTypes.STRING },
   qty:             { type: DataTypes.INTEGER },
   shipping:        { type: DataTypes.STRING },
-  total:           { type: DataTypes.INTEGER },
+  total:           { type: DataTypes.FLOAT },
   status:          { type: DataTypes.STRING, defaultValue: 'active' }, // active | delivered
+  order_type:      { type: DataTypes.STRING, allowNull: true },
+  items:           { type: DataTypes.TEXT, allowNull: true },
   tracking_link:   { type: DataTypes.STRING(1000), allowNull: true },
   payment_file_id: { type: DataTypes.STRING, allowNull: true },
   created_at:      { type: DataTypes.DATE, defaultValue: DataTypes.NOW },

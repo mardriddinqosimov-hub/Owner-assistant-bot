@@ -7,6 +7,7 @@ const User = sequelize.define('User', {
   company_name: { type: DataTypes.STRING },
   contact_email: { type: DataTypes.STRING },
   company_api_key: { type: DataTypes.TEXT },
+  platform:        { type: DataTypes.STRING, allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   last_active: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
 }, { tableName: 'users', timestamps: false });

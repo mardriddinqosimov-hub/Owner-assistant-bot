@@ -1,33 +1,54 @@
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Order = require('../models/Order');
+const notifService = require('../services/notificationService');
 const {
-  orderPendingCustomQty,
   orderSessions,
   ORDER_STEPS,
   ORDER_PROMPTS,
   CANCEL_KB,
-  showShippingSelection,
 } = require('./callbackHandlers');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
 
+const CABLE_NAMES = {
+  vm:  '16-Pin Volvo/Mack',
+  obd: '16-Pin OBD2 Box Truck',
+  rp:  '14-Pin RP1226',
+  p9:  '9-Pin Cable',
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildOrderSummary(s, title = '📋 <b>Order Confirmation</b>') {
-  const shippingLabel = s.shipping === 'overnight' ? 'Overnight (+$100)' : 'Standard (FREE)';
+  let itemsText = '';
+
+  if (s.type === 'fullset') {
+    const cableName = CABLE_NAMES[s.cable_type] || s.cable_type || 'Cable';
+    const shippingLabel = s.shipping === 'overnight' ? 'Overnight (+$79.99)' : 'Standard (included)';
+    itemsText =
+      `🎯 ${s.sets}× Full Set\n` +
+      `  Cable: ${cableName}\n` +
+      `  Stickers: included\n\n` +
+      `🚚 Shipping: ${shippingLabel}\n`;
+  } else if (s.type === 'custom') {
+    if ((s.items.pt30 || 0) > 0) itemsText += `📱 ${s.items.pt30}× PT30 Device @ $120 = $${(s.items.pt30 * 120).toFixed(2)}\n`;
+    for (const [k, name] of Object.entries(CABLE_NAMES)) {
+      if ((s.items[k] || 0) > 0) itemsText += `🔌 ${s.items[k]}× ${name} @ $29 = $${(s.items[k] * 29).toFixed(2)}\n`;
+    }
+    const shippingLabel = s.shipping === 'overnight' ? 'Overnight ($79.99)' : 'Standard ($30.99)';
+    itemsText += `\n🚚 Shipping: ${shippingLabel}\n`;
+  }
+
   return (
     `${title}\n\n` +
     `👤 Owner: ${s.owner_name}\n` +
     `🏢 Company: ${s.company_name}\n` +
     `📧 Email: ${s.email}\n` +
     `📱 Phone: ${s.phone}\n` +
-    `📍 Delivery: ${s.location}\n` +
-    `🔌 Cable PIN: ${s.cable_pin}\n` +
-    `🏷️ Stickers: ${s.stickers}\n\n` +
-    `📦 ${s.qty}x PT30 ELD @ $179 each\n` +
-    `Shipping: ${shippingLabel}\n` +
-    `<b>Total: $${s.total}</b>`
+    `📍 Delivery: ${s.location}\n\n` +
+    itemsText +
+    `<b>💰 Total: $${parseFloat(s.total).toFixed(2)}</b>`
   );
 }
 
@@ -48,8 +69,17 @@ async function showConfirmation(ctx, session) {
 }
 
 async function completeOrder(ctx, session, fileId, type) {
-  // Save to DB first so we have an order ID
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+
+  const qty = session.type === 'fullset' ? (session.sets || 0) : (session.items?.pt30 || 0);
+
+  let itemsJson = null;
+  if (session.type === 'fullset') {
+    itemsJson = JSON.stringify({ type: 'fullset', cable_type: session.cable_type, sets: session.sets });
+  } else if (session.type === 'custom') {
+    itemsJson = JSON.stringify({ type: 'custom', ...session.items });
+  }
+
   let order = null;
   if (user) {
     order = await Order.create({
@@ -59,11 +89,11 @@ async function completeOrder(ctx, session, fileId, type) {
       email:           session.email,
       phone:           session.phone,
       location:        session.location,
-      cable_pin:       session.cable_pin,
-      stickers:        session.stickers,
-      qty:             session.qty,
+      qty,
       shipping:        session.shipping,
       total:           session.total,
+      order_type:      session.type || null,
+      items:           itemsJson,
       status:          'active',
       payment_file_id: fileId,
       created_at:      new Date(),
@@ -71,14 +101,25 @@ async function completeOrder(ctx, session, fileId, type) {
     });
   }
 
-  const title = order ? `🎉 <b>New Device Order #${order.id}!</b>` : '🎉 <b>New Device Order!</b>';
-  const summary = buildOrderSummary(session, title) + `\n\n👤 Telegram ID: ${ctx.from.id}`;
+  const title = order ? `🎉 <b>New Order #${order.id}!</b>` : '🎉 <b>New Order!</b>';
+  const adminCaption =
+    buildOrderSummary(session, title) +
+    `\n\n👤 Telegram ID: ${ctx.from.id}` +
+    (order ? `\n\n<b>/track ${order.id} TRACKING_URL</b>` : '');
 
-  if (type === 'photo') {
-    await ctx.telegram.sendPhoto(ORDER_GROUP_ID, fileId, { caption: summary, parse_mode: 'HTML' });
-  } else {
-    await ctx.telegram.sendDocument(ORDER_GROUP_ID, fileId, { caption: summary, parse_mode: 'HTML' });
+  // Forward to order group
+  try {
+    if (type === 'photo') {
+      await ctx.telegram.sendPhoto(ORDER_GROUP_ID, fileId, { caption: adminCaption, parse_mode: 'HTML' });
+    } else {
+      await ctx.telegram.sendDocument(ORDER_GROUP_ID, fileId, { caption: adminCaption, parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    logger.warn('Failed to forward to order group:', err.message);
   }
+
+  // Notify accounting bot
+  await notifService.notifyAdminNewOrder(fileId, type, adminCaption);
 
   await ctx.reply(
     `✅ <b>Order Completed!</b>${order ? ` (Order #${order.id})` : ''}\n\n` +
@@ -86,8 +127,15 @@ async function completeOrder(ctx, session, fileId, type) {
     `We'll contact you at:\n` +
     `📧 ${session.email}\n` +
     `📱 ${session.phone}\n\n` +
-    `Track your order in <b>Order Devices → Active Orders</b>.\n\nUse /start to return to the menu.`,
-    { parse_mode: 'HTML' }
+    `Track your order in <b>Order Devices → Active Orders</b>.`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🏠 Main Menu', callback_data: 'main_menu' }],
+        ],
+      },
+    }
   );
 }
 
@@ -98,19 +146,6 @@ const handleText = async (ctx) => {
   if (ctx.message.text.startsWith('/')) return;
 
   const userId = ctx.from.id;
-
-  // Custom quantity input
-  if (orderPendingCustomQty.get(userId)) {
-    const qty = parseInt(ctx.message.text.trim(), 10);
-    if (!qty || qty < 1 || qty > 100) {
-      return ctx.reply('Please enter a valid number between 1 and 100.');
-    }
-    orderPendingCustomQty.delete(userId);
-    await ctx.reply(`You selected ${qty}x PT30. Choose shipping:`);
-    return showShippingSelection(ctx, qty, false);
-  }
-
-  // Q&A order flow
   const session = orderSessions.get(userId);
 
   if (session && ORDER_STEPS.includes(session.step)) {
