@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Device Order Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+
+    header h1 span { color: #60a5fa; }
+
+    .refresh-info {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .refresh-info b { color: #94a3b8; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* Stats */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .stat-card .num {
+      font-size: 40px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-card .label {
+      font-size: 13px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .stat-card.active .num  { color: #f59e0b; }
+    .stat-card.done .num    { color: #34d399; }
+    .stat-card.total .num   { color: #60a5fa; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 20px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 4px;
+      width: fit-content;
+    }
+
+    .tab {
+      padding: 8px 20px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #94a3b8;
+      border: none;
+      background: transparent;
+      transition: all .15s;
+    }
+
+    .tab.active {
+      background: #3b82f6;
+      color: #fff;
+    }
+
+    /* Table */
+    .table-wrap {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead tr {
+      background: #0f172a;
+    }
+
+    thead th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-top: 1px solid #334155;
+      cursor: pointer;
+      transition: background .1s;
+    }
+
+    tbody tr:hover { background: #263548; }
+    tbody tr.expanded { background: #1a3050; }
+
+    td {
+      padding: 12px 16px;
+      vertical-align: middle;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-leader { background: #1d4ed8; color: #bfdbfe; }
+    .badge-factor { background: #7c3aed; color: #ddd6fe; }
+    .badge-active  { background: #92400e; color: #fde68a; }
+    .badge-done    { background: #064e3b; color: #a7f3d0; }
+
+    .name { font-weight: 600; color: #f1f5f9; }
+    .company { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+    .amount { font-weight: 700; color: #34d399; }
+    .date { color: #94a3b8; font-size: 12px; white-space: nowrap; }
+
+    /* Expanded detail row */
+    .detail-row { display: none; }
+    .detail-row.open { display: table-row; }
+
+    .detail-cell {
+      padding: 0 !important;
+    }
+
+    .detail-inner {
+      padding: 20px 24px;
+      background: #0d1f36;
+      border-top: 1px solid #1e3a5f;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .detail-section h4 {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      margin-bottom: 10px;
+    }
+
+    .detail-row-item {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .detail-row-item .dl { color: #64748b; min-width: 80px; }
+    .detail-row-item .dv { color: #e2e8f0; word-break: break-word; }
+
+    .tracking-code {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #60a5fa;
+      word-break: break-all;
+    }
+
+    .payment-area { margin-top: 16px; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s;
+    }
+
+    .btn:hover { opacity: .85; }
+    .btn-blue { background: #3b82f6; color: #fff; }
+    .btn-gray { background: #334155; color: #94a3b8; }
+
+    /* Payment modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.75);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 24px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .modal-header h3 { font-size: 16px; font-weight: 700; }
+
+    .modal-close {
+      background: #334155;
+      border: none;
+      color: #94a3b8;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-close:hover { background: #475569; color: #fff; }
+
+    .modal-img {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #334155;
+    }
+
+    .modal-loading {
+      text-align: center;
+      padding: 40px;
+      color: #64748b;
+    }
+
+    .modal-pdf-link {
+      display: block;
+      text-align: center;
+      padding: 40px;
+      color: #60a5fa;
+      font-size: 16px;
+      text-decoration: none;
+    }
+
+    .modal-pdf-link:hover { text-decoration: underline; }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #475569;
+    }
+
+    .empty .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty p { font-size: 15px; }
+
+    /* Loading spinner */
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      margin: 60px auto;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .items-tag {
+      background: #1a2942;
+      border: 1px solid #2d4a6e;
+      color: #93c5fd;
+      border-radius: 5px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    @media (max-width: 700px) {
+      .stats { grid-template-columns: 1fr; }
+      .detail-inner { grid-template-columns: 1fr; }
+      thead th:nth-child(n+4) { display: none; }
+      td:nth-child(n+4) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📦 <span>Device Order</span> Admin</h1>
+  <div class="refresh-info">Auto-refresh every <b>30s</b> &nbsp;|&nbsp; <span id="last-refresh">—</span></div>
+</header>
+
+<div class="container">
+
+  <div class="stats">
+    <div class="stat-card active">
+      <div class="num" id="stat-active">—</div>
+      <div class="label">Active Orders</div>
+    </div>
+    <div class="stat-card done">
+      <div class="num" id="stat-delivered">—</div>
+      <div class="label">Delivered</div>
+    </div>
+    <div class="stat-card total">
+      <div class="num" id="stat-total">—</div>
+      <div class="label">Total Orders</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('active')">🔄 Active Orders</button>
+    <button class="tab" onclick="switchTab('history')">📜 Order History</button>
+  </div>
+
+  <div class="table-wrap">
+    <div id="table-container"><div class="spinner"></div></div>
+  </div>
+
+</div>
+
+<!-- Payment modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Payment Screenshot</h3>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div id="modal-body"><div class="modal-loading">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+  let currentTab = 'active';
+  let allOrders = [];
+  let refreshTimer = null;
+
+  const CABLE = { vm: 'Volvo/Mack', obd: 'OBD2 Box', rp: 'RP1226', p9: '9-Pin' };
+
+  function fmt(dateStr) {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  }
+
+  function parseItems(itemsJson, qty) {
+    try {
+      const items = JSON.parse(itemsJson || '{}');
+      if (items.type === 'fullset') {
+        return `${items.sets}× Full Set (${CABLE[items.cable_type] || items.cable_type})`;
+      }
+      if (items.type === 'custom') {
+        const parts = [];
+        if (items.pt30 > 0) parts.push(`${items.pt30}× PT30`);
+        const cables = ['vm','obd','rp','p9'].reduce((s,k) => s + (items[k]||0), 0);
+        if (cables > 0) parts.push(`${cables}× Cable`);
+        return parts.join(' + ') || '—';
+      }
+    } catch {}
+    return `${qty || 1}× PT30`;
+  }
+
+  function parseItemsFull(itemsJson, qty) {
+    try {
+      const items = JSON.parse(itemsJson || '{}');
+      if (items.type === 'fullset') {
+        return `${items.sets}× Full Set | Cable: ${CABLE[items.cable_type] || items.cable_type} | Stickers: included`;
+      }
+      if (items.type === 'custom') {
+        const parts = [];
+        if (items.pt30 > 0) parts.push(`${items.pt30}× PT30 Device`);
+        for (const [k, n] of Object.entries(CABLE)) {
+          if ((items[k]||0) > 0) parts.push(`${items[k]}× ${n} Cable`);
+        }
+        return parts.join(', ') || '—';
+      }
+    } catch {}
+    return `${qty || 1}× PT30 Device`;
+  }
+
+  function shippingLabel(s) {
+    if (s === 'overnight') return 'Overnight';
+    if (s === 'standard') return 'Standard';
+    return s || 'Standard';
+  }
+
+  async function loadStats() {
+    try {
+      const r = await fetch('/admin/api/stats');
+      const d = await r.json();
+      document.getElementById('stat-active').textContent = d.active;
+      document.getElementById('stat-delivered').textContent = d.delivered;
+      document.getElementById('stat-total').textContent = d.total;
+    } catch {}
+  }
+
+  async function loadOrders() {
+    try {
+      const status = currentTab === 'active' ? 'active' : 'delivered';
+      const r = await fetch(`/admin/api/orders?status=${status}`);
+      allOrders = await r.json();
+      renderTable(allOrders);
+      document.getElementById('last-refresh').textContent =
+        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+      document.getElementById('table-container').innerHTML =
+        '<div class="empty"><div class="icon">⚠️</div><p>Failed to load orders</p></div>';
+    }
+  }
+
+  function renderTable(orders) {
+    const container = document.getElementById('table-container');
+
+    if (!orders.length) {
+      container.innerHTML = `<div class="empty">
+        <div class="icon">${currentTab === 'active' ? '🎉' : '📭'}</div>
+        <p>${currentTab === 'active' ? 'No active orders right now' : 'No delivered orders yet'}</p>
+      </div>`;
+      return;
+    }
+
+    let html = `<table>
+      <thead><tr>
+        <th>#</th>
+        <th>Customer</th>
+        <th>Items</th>
+        <th>Total</th>
+        <th>Platform</th>
+        <th>Date</th>
+        <th>Status</th>
+      </tr></thead>
+      <tbody>`;
+
+    for (const o of orders) {
+      const platformBadge = o.platform === 'factor'
+        ? `<span class="badge badge-factor">Factor</span>`
+        : `<span class="badge badge-leader">Leader</span>`;
+      const statusBadge = o.status === 'delivered'
+        ? `<span class="badge badge-done">✅ Done</span>`
+        : `<span class="badge badge-active">🔄 Active</span>`;
+
+      html += `
+        <tr onclick="toggleDetail(${o.id})" id="row-${o.id}">
+          <td><b>#${o.id}</b></td>
+          <td>
+            <div class="name">${esc(o.owner_name || '—')}</div>
+            <div class="company">${esc(o.company_name || '—')}</div>
+          </td>
+          <td><span class="items-tag">${esc(parseItems(o.items, o.qty))}</span></td>
+          <td class="amount">$${parseFloat(o.total || 0).toFixed(2)}</td>
+          <td>${platformBadge}</td>
+          <td class="date">${fmt(o.created_at)}</td>
+          <td>${statusBadge}</td>
+        </tr>
+        <tr class="detail-row" id="detail-${o.id}">
+          <td colspan="7" class="detail-cell">
+            <div class="detail-inner">
+              <div class="detail-section">
+                <h4>📋 Order Details</h4>
+                <div class="detail-row-item"><span class="dl">Items</span><span class="dv">${esc(parseItemsFull(o.items, o.qty))}</span></div>
+                <div class="detail-row-item"><span class="dl">Shipping</span><span class="dv">${esc(shippingLabel(o.shipping))}</span></div>
+                <div class="detail-row-item"><span class="dl">Total</span><span class="dv" style="color:#34d399;font-weight:700">$${parseFloat(o.total || 0).toFixed(2)}</span></div>
+                <div class="detail-row-item"><span class="dl">Placed</span><span class="dv">${fmt(o.created_at)}</span></div>
+                ${o.status === 'delivered' ? `<div class="detail-row-item"><span class="dl">Delivered</span><span class="dv">${fmt(o.updated_at)}</span></div>` : ''}
+                ${o.tracking_link ? `
+                  <div class="detail-row-item" style="margin-top:8px">
+                    <span class="dl">Tracking</span>
+                    <span class="dv">
+                      <div class="tracking-code">${esc(o.tracking_link)}</div>
+                      ${o.tracking_link.startsWith('http') ? `<a href="${esc(o.tracking_link)}" target="_blank" style="color:#60a5fa;font-size:12px;margin-top:4px;display:block">Open link ↗</a>` : ''}
+                    </span>
+                  </div>` : `<div class="detail-row-item"><span class="dl">Tracking</span><span class="dv" style="color:#64748b">Not added yet</span></div>`}
+              </div>
+              <div class="detail-section">
+                <h4>👤 Customer Info</h4>
+                <div class="detail-row-item"><span class="dl">Owner</span><span class="dv">${esc(o.owner_name || '—')}</span></div>
+                <div class="detail-row-item"><span class="dl">Company</span><span class="dv">${esc(o.company_name || '—')}</span></div>
+                <div class="detail-row-item"><span class="dl">Email</span><span class="dv">${esc(o.email || '—')}</span></div>
+                <div class="detail-row-item"><span class="dl">Phone</span><span class="dv">${esc(o.phone || '—')}</span></div>
+                <div class="detail-row-item"><span class="dl">Address</span><span class="dv">${esc(o.location || '—')}</span></div>
+                <div class="detail-row-item"><span class="dl">Platform</span><span class="dv">${o.platform === 'factor' ? 'Factor ELD' : 'Leader ELD'}</span></div>
+                <div class="payment-area">
+                  ${o.has_payment
+                    ? `<button class="btn btn-blue" onclick="event.stopPropagation(); viewPayment(${o.id}, '${esc(o.owner_name || '')}')">🧾 View Payment Screenshot</button>`
+                    : `<button class="btn btn-gray" disabled>🧾 No payment screenshot</button>`}
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>`;
+    }
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  }
+
+  function toggleDetail(id) {
+    const detail = document.getElementById(`detail-${id}`);
+    const row = document.getElementById(`row-${id}`);
+    const isOpen = detail.classList.contains('open');
+    // Close all others
+    document.querySelectorAll('.detail-row.open').forEach(r => r.classList.remove('open'));
+    document.querySelectorAll('tbody tr.expanded').forEach(r => r.classList.remove('expanded'));
+    if (!isOpen) {
+      detail.classList.add('open');
+      row.classList.add('expanded');
+    }
+  }
+
+  function viewPayment(orderId, ownerName) {
+    document.getElementById('modal-title').textContent = `Payment — Order #${orderId} (${ownerName})`;
+    document.getElementById('modal-body').innerHTML = '<div class="modal-loading">⏳ Loading screenshot...</div>';
+    document.getElementById('modal').classList.add('open');
+
+    const url = `/admin/payment/${orderId}`;
+    // Try as image first; if it's a PDF the browser will handle it
+    const img = new Image();
+    img.onload = () => {
+      document.getElementById('modal-body').innerHTML =
+        `<img src="${url}" class="modal-img" alt="Payment screenshot">`;
+    };
+    img.onerror = () => {
+      // Could be a PDF or other document
+      document.getElementById('modal-body').innerHTML =
+        `<a class="modal-pdf-link" href="${url}" target="_blank">📄 Open Payment Document ↗</a>`;
+    };
+    img.src = url;
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    document.getElementById('modal-body').innerHTML = '';
+  }
+
+  // Close modal on overlay click
+  document.getElementById('modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      t.classList.toggle('active', (i === 0) === (tab === 'active'));
+    });
+    document.getElementById('table-container').innerHTML = '<div class="spinner"></div>';
+    loadOrders();
+  }
+
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function refresh() {
+    loadStats();
+    loadOrders();
+  }
+
+  // Initial load
+  refresh();
+
+  // Auto-refresh every 30 seconds
+  refreshTimer = setInterval(refresh, 30000);
+</script>
+</body>
+</html>

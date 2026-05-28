@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const { getSetting, setSetting } = require('../models/Setting');
@@ -280,7 +281,12 @@ const acctStatusCb = async (ctx) => {
 const acctHistory = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const orders = await Order.findAll({ where: { status: 'delivered' }, order: [['updated_at', 'DESC']], limit: 30 });
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    const orders = await Order.findAll({
+      where: { status: 'delivered', updated_at: { [Op.gte]: tenDaysAgo } },
+      order: [['updated_at', 'DESC']],
+      limit: 30,
+    });
 
     if (!orders.length) {
       return ctx.editMessageText(

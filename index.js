@@ -1,4 +1,6 @@
 require('dotenv').config();
+const express = require('express');
+const path = require('path');
 const { Telegraf } = require('telegraf');
 const logger = require('./utils/logger');
 const database = require('./config/database');
@@ -10,6 +12,7 @@ const callbackHandlers = require('./handlers/callbackHandlers');
 const messageHandlers = require('./handlers/messageHandlers');
 const accountingHandlers = require('./handlers/accountingHandlers');
 const notifService = require('./services/notificationService');
+const dashboardModule = require('./routes/dashboard');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
@@ -156,17 +159,15 @@ async function startBot() {
     notifService.setMainBot(bot);
     if (accountingBot) notifService.setAccountingBot(accountingBot);
 
+    // ─── Express (always runs — serves dashboard + health + optional webhook) ──
+    const app = express();
+    const PORT = process.env.PORT || 3000;
+
     if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_URL) {
-      const express = require('express');
-      const app = express();
-      const PORT = process.env.PORT || 3000;
       const webhookPath = '/telegram';
       const webhookUrl = `${process.env.WEBHOOK_URL}${webhookPath}`;
-
+      // Webhook callback must be registered before body parsers
       app.use(bot.webhookCallback(webhookPath));
-      app.get('/health', (req, res) => res.json({ status: 'ok' }));
-      app.listen(PORT, () => logger.info(`✅ Webhook server listening on port ${PORT}`));
-
       await bot.telegram.setWebhook(webhookUrl);
       logger.info(`✅ Webhook set: ${webhookUrl}`);
     } else {
@@ -174,6 +175,14 @@ async function startBot() {
       bot.launch();
       logger.info('✅ Main bot polling started');
     }
+
+    // Dashboard (wire bot reference for payment proxy)
+    dashboardModule.setBot(bot);
+    app.use(express.static(path.join(__dirname, 'public')));
+    app.use('/admin', dashboardModule.router);
+    app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+    app.listen(PORT, () => logger.info(`✅ Server listening on port ${PORT} — dashboard at /admin`));
 
     // Accounting bot always uses polling (internal tool)
     if (accountingBot) {
