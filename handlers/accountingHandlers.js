@@ -72,14 +72,14 @@ function orderDetailKb(orderId, hasTracking) {
 // ─── Main menu ────────────────────────────────────────────────────────────────
 
 const acctStart = async (ctx) => {
-  await ctx.reply(`🏦 <b>Accounting Bot</b>\n\nChoose a section:`, { parse_mode: 'HTML', reply_markup: MAIN_KB });
+  await ctx.reply(`🏦 <b>Device Order Admin</b>\n\nChoose a section:`, { parse_mode: 'HTML', reply_markup: MAIN_KB });
 };
 
 const acctMainMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     acctSessions.delete(ctx.from.id);
-    await ctx.editMessageText(`🏦 <b>Accounting Bot</b>\n\nChoose a section:`, { parse_mode: 'HTML', reply_markup: MAIN_KB });
+    await ctx.editMessageText(`🏦 <b>Device Order Admin</b>\n\nChoose a section:`, { parse_mode: 'HTML', reply_markup: MAIN_KB });
   } catch { /* message unchanged */ }
 };
 
