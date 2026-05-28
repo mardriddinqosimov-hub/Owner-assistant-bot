@@ -35,7 +35,7 @@ const acctTrackStart = async (ctx) => {
   acctSessions.set(ctx.from.id, { action: 'track' });
   await ctx.reply(
     `📬 <b>Add Tracking</b>\n\nSend the order ID and tracking URL:\n\n<code>ORDER_ID TRACKING_URL</code>\n\nExample: <code>42 https://track.usps.com/...</code>`,
-    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'acct_cancel' }]] } }
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'acct_cancel' }]] } }
   );
 };
 
@@ -44,7 +44,7 @@ const acctDeliverStart = async (ctx) => {
   acctSessions.set(ctx.from.id, { action: 'deliver' });
   await ctx.reply(
     `🎉 <b>Mark Delivered</b>\n\nSend the order ID:\n\n<code>ORDER_ID</code>`,
-    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'acct_cancel' }]] } }
+    { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'acct_cancel' }]] } }
   );
 };
 
@@ -58,7 +58,7 @@ const acctClosePrompt = async (ctx) => {
       reply_markup: {
         inline_keyboard: [
           [{ text: '🚫 Close with default message', callback_data: 'acct_close_default' }],
-          [{ text: '❌ Cancel', callback_data: 'acct_cancel' }],
+          [{ text: '◀️ Back', callback_data: 'acct_cancel' }],
         ],
       },
     }
