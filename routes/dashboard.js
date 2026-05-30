@@ -119,6 +119,19 @@ router.get('/payment/:orderId', async (req, res) => {
   }
 });
 
+// ── Mark order delivered ──────────────────────────────────────────────────────
+router.post('/api/orders/:id/deliver', async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    await order.update({ status: 'delivered' });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Deliver order error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
 // ── Management status ─────────────────────────────────────────────────────────
 router.get('/api/management/status', async (req, res) => {
   try {

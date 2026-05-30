@@ -505,10 +505,6 @@
 
     <div class="nav-section">Catalog</div>
     <div class="nav-item">
-      <span class="nav-icon">🚛</span>
-      <span>Fleets</span>
-    </div>
-    <div class="nav-item">
       <span class="nav-icon">📦</span>
       <span>Inventory</span>
     </div>
@@ -965,6 +961,9 @@ function renderTable(orders, containerId, isHistory) {
                 ${o.has_payment
                   ? `<button class="btn btn-blue" onclick="event.stopPropagation();viewPayment(${o.id},'${esc(o.owner_name||'')}')">🧾 View Payment</button>`
                   : `<button class="btn btn-gray" disabled>🧾 No payment screenshot</button>`}
+                ${o.status === 'active'
+                  ? `<button class="btn btn-green" onclick="event.stopPropagation();markDelivered(${o.id},this)">✓ Mark as Delivered</button>`
+                  : ''}
               </div>
             </div>
           </div>
@@ -987,6 +986,22 @@ function toggleDetail(id, containerId) {
   if (!isOpen) {
     detail.classList.add('open');
     row.classList.add('expanded');
+  }
+}
+
+/* ── Mark as Delivered ─────────────────────────────────── */
+async function markDelivered(orderId, btn) {
+  if (!confirm(`Mark Order #${orderId} as delivered?`)) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Saving...';
+  try {
+    const r = await fetch(`/admin/api/orders/${orderId}/deliver`, { method: 'POST' });
+    if (!r.ok) throw new Error();
+    await loadAllOrders();
+  } catch {
+    btn.disabled = false;
+    btn.textContent = '✓ Mark as Delivered';
+    alert('Failed to update order. Please try again.');
   }
 }
 
