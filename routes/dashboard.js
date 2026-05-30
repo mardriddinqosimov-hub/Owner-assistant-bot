@@ -5,6 +5,7 @@ const http = require('http');
 const { Op } = require('sequelize');
 const Order = require('../models/Order');
 const User = require('../models/User');
+const { getSetting, setSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -30,6 +31,7 @@ function basicAuth(req, res, next) {
 }
 
 router.use(basicAuth);
+router.use(express.json());
 
 router.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/dashboard.html'));
@@ -114,6 +116,101 @@ router.get('/payment/:orderId', async (req, res) => {
   } catch (err) {
     logger.error('Dashboard payment error:', err);
     res.status(500).send('Failed to load payment');
+  }
+});
+
+// ── Management status ─────────────────────────────────────────────────────────
+router.get('/api/management/status', async (req, res) => {
+  try {
+    const open = await getSetting('orders_open', 'true');
+    const message = await getSetting('orders_closed_message', '');
+    res.json({ open: open === 'true', message });
+  } catch (err) {
+    logger.error('Management status error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+router.post('/api/management/open', async (req, res) => {
+  try {
+    await setSetting('orders_open', 'true');
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Management open error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+router.post('/api/management/close', async (req, res) => {
+  try {
+    const msg = (req.body.message || '').trim() || 'Stores are temporarily closed. Please try again later.';
+    await setSetting('orders_open', 'false');
+    await setSetting('orders_closed_message', msg);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Management close error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// ── Reports summary ───────────────────────────────────────────────────────────
+router.get('/api/reports/summary', async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfDay   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek  = new Date(startOfDay);
+    startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const [allOrders, recentOrders] = await Promise.all([
+      Order.findAll({ attributes: ['total', 'created_at', 'status'] }),
+      Order.findAll({
+        where: { created_at: { [Op.gte]: thirtyDaysAgo } },
+        attributes: ['total', 'created_at', 'status'],
+        order: [['created_at', 'ASC']],
+      }),
+    ]);
+
+    // Build daily buckets for last 30 days
+    const dayMap = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      dayMap[d.toISOString().split('T')[0]] = { count: 0, revenue: 0 };
+    }
+
+    let todayCount = 0, todayRev = 0;
+    let weekCount  = 0, weekRev  = 0;
+    let monthCount = 0, monthRev = 0;
+    let totalRev   = 0;
+
+    for (const o of allOrders) {
+      const rev = parseFloat(o.total || 0);
+      totalRev += rev;
+      const d = new Date(o.created_at);
+      if (d >= startOfDay)   { todayCount++; todayRev += rev; }
+      if (d >= startOfWeek)  { weekCount++;  weekRev  += rev; }
+      if (d >= startOfMonth) { monthCount++; monthRev += rev; }
+    }
+
+    for (const o of recentOrders) {
+      const key = new Date(o.created_at).toISOString().split('T')[0];
+      if (dayMap[key]) {
+        dayMap[key].count++;
+        dayMap[key].revenue += parseFloat(o.total || 0);
+      }
+    }
+
+    res.json({
+      today:        { count: todayCount, revenue: todayRev },
+      week:         { count: weekCount,  revenue: weekRev  },
+      month:        { count: monthCount, revenue: monthRev },
+      totalRevenue: totalRev,
+      daily: Object.entries(dayMap).map(([date, d]) => ({ date, ...d })),
+    });
+  } catch (err) {
+    logger.error('Reports summary error:', err);
+    res.status(500).json({ error: 'Failed to load reports' });
   }
 });
 
