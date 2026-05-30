@@ -7,6 +7,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -443,11 +444,6 @@
     .rn-green  { color: #34d399; }
     .rn-yellow { color: #fbbf24; }
 
-    .chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
-    .chart-card-full { width: 100%; }
-    .chart-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-    .chart-title  { font-size: 14px; font-weight: 600; }
-    .chart-sub    { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
     .export-card {
       background: var(--card); border: 1px solid var(--card-border); border-radius: 14px;
@@ -619,20 +615,16 @@
         </div>
       </div>
 
-      <div class="chart-card chart-card-full">
-        <div class="chart-header">
-          <div class="chart-title">Orders This Month</div>
-          <div class="chart-sub" id="chart-month-label">—</div>
-        </div>
-        <canvas id="chart-orders" height="120"></canvas>
-      </div>
 
       <div class="export-card">
         <div class="export-info">
-          <h3>📄 Monthly Report — PDF Export</h3>
-          <p>Download a full PDF report for the current month with all orders, customers, and revenue.</p>
+          <h3>📄 Monthly Report Export</h3>
+          <p>Download the current month's orders with all customers and revenue details.</p>
         </div>
-        <button class="btn btn-blue" onclick="exportPDF()" id="export-btn">⬇️ Export PDF</button>
+        <div style="display:flex;gap:10px;flex-shrink:0">
+          <button class="btn btn-blue" onclick="exportPDF()" id="export-btn">⬇️ Export PDF</button>
+          <button class="btn btn-green" onclick="exportExcel()" id="export-xl-btn">⬇️ Export Excel</button>
+        </div>
       </div>
     </div>
 
@@ -657,7 +649,6 @@ let currentFilter  = 'all';
 let allOrders      = [];
 let historyOrders  = [];
 let sparkCharts    = {};
-let reportCharts   = {};
 let reportData     = null;
 let refreshTimer   = null;
 
@@ -1101,76 +1092,9 @@ async function loadReports() {
     document.getElementById('rep-month').textContent     = reportData.month.count;
     document.getElementById('rep-month-rev').textContent = money(reportData.month.revenue) + ' revenue';
     document.getElementById('rep-total').textContent     = money(reportData.totalRevenue);
-
-    // Filter to current month only
-    const now = new Date();
-    const monthData = reportData.daily.filter(d => {
-      const dt = new Date(d.date + 'T00:00:00');
-      return dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
-    });
-
-    const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    document.getElementById('chart-month-label').textContent = monthName;
-
-    const labels = monthData.map(d => {
-      const dt = new Date(d.date + 'T00:00:00');
-      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    });
-    const counts = monthData.map(d => d.count);
-
-    drawReportChart('chart-orders', labels, counts, '#3b82f6', 'Orders');
   } catch {
-    // silent fail — charts stay blank
+    // silent fail
   }
-}
-
-function drawReportChart(id, labels, data, color, label) {
-  const ctx = document.getElementById(id);
-  if (!ctx) return;
-  if (reportCharts[id]) { reportCharts[id].destroy(); }
-
-  reportCharts[id] = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label,
-        data,
-        backgroundColor: color + '55',
-        borderColor: color,
-        borderWidth: 1.5,
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0f1829',
-          borderColor: '#1a2840',
-          borderWidth: 1,
-          titleColor: '#e2e8f0',
-          bodyColor: '#94a3b8',
-          callbacks: {
-            label: (item) => `${item.parsed.y} order${item.parsed.y !== 1 ? 's' : ''}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: { color: '#64748b', font: { size: 11 } },
-          grid:  { display: false },
-        },
-        y: {
-          ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1, precision: 0 },
-          grid:  { color: '#1a2840' },
-          beginAtZero: true,
-        },
-      },
-      responsive: true,
-      maintainAspectRatio: false,
-    },
-  });
 }
 
 /* ── PDF Export ────────────────────────────────────────── */
@@ -1259,6 +1183,47 @@ async function exportPDF() {
   } finally {
     btn.disabled = false;
     btn.textContent = '⬇️ Export PDF';
+  }
+}
+
+/* ── Excel Export ──────────────────────────────────────── */
+async function exportExcel() {
+  const btn = document.getElementById('export-xl-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const r = await fetch('/admin/api/orders');
+    const orders = (await r.json()).filter(o => new Date(o.created_at) >= startOfMonth);
+
+    const rows = orders.map(o => ({
+      'Order #':    o.id,
+      'Owner':      o.owner_name || '—',
+      'Company':    o.company_name || '—',
+      'Email':      o.email || '—',
+      'Phone':      o.phone || '—',
+      'Address':    o.location || '—',
+      'Items':      parseItems(o.items, o.qty).join(', '),
+      'Total':      parseFloat(o.total || 0).toFixed(2),
+      'Shipping':   o.shipping === 'overnight' ? 'Overnight' : 'Standard',
+      'Platform':   o.platform === 'factor' ? 'Factor ELD' : 'Leader ELD',
+      'Status':     o.status === 'delivered' ? 'Delivered' : 'Active',
+      'Date':       fmt(o.created_at),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    const month = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    XLSX.writeFile(wb, `AlgoGroup_Orders_${now.getFullYear()}_${String(now.getMonth()+1).padStart(2,'0')}.xlsx`);
+  } catch (e) {
+    alert('Failed to generate Excel: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⬇️ Export Excel';
   }
 }
 
