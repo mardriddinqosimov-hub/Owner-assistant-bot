@@ -234,13 +234,12 @@ const HISTORY_PAGE_SIZE = 5;
 
 const CANCEL_KB = { inline_keyboard: [[{ text: '❌ Cancel Order', callback_data: 'order_cancel' }]] };
 
-const ORDER_QA_STEPS = ['owner_name', 'company_name', 'email', 'phone', 'location'];
+const ORDER_QA_STEPS = ['owner_name', 'email', 'phone', 'location'];
 const ORDER_QA_PROMPTS = {
-  owner_name:   '👤 <b>(1/5) Owner Name</b>\n\nPlease enter the owner\'s full name:',
-  company_name: '🏢 <b>(2/5) Company Name</b>\n\nPlease enter your company name:',
-  email:        '📧 <b>(3/5) Email Address</b>\n\nPlease enter your email address:',
-  phone:        '📱 <b>(4/5) Phone Number</b>\n\nPlease enter your phone number:',
-  location:     '📍 <b>(5/5) Delivery Address</b>\n\nPlease enter your full delivery address:',
+  owner_name: '👤 <b>(1/4) Owner Name</b>\n\nPlease enter the owner\'s full name:',
+  email:      '📧 <b>(2/4) Email Address</b>\n\nPlease enter your email address:',
+  phone:      '📱 <b>(3/4) Phone Number</b>\n\nPlease enter your phone number:',
+  location:   '📍 <b>(4/4) Delivery Address</b>\n\nPlease enter your full delivery address:',
 };
 
 function computeFullSetTotal(sets, shipping) {
@@ -436,6 +435,9 @@ const fsSelectShipping = async (ctx) => {
     session.total = computeFullSetTotal(session.sets, shipping);
     session.step = 'owner_name';
 
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    session.company_name = user?.company_name || '';
+
     await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
   } catch (err) {
     logger.error('fsSelectShipping error:', err);
@@ -594,6 +596,9 @@ const cuSelectShipping = async (ctx) => {
     session.total = computeCustomTotal(session.items, shipping);
     session.step = 'owner_name';
 
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    session.company_name = user?.company_name || '';
+
     await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
   } catch (err) {
     logger.error('cuSelectShipping error:', err);
@@ -637,6 +642,9 @@ const orderEdit = async (ctx) => {
 
     session.step = 'owner_name';
     ORDER_QA_STEPS.forEach(k => delete session[k]);
+
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    session.company_name = user?.company_name || '';
 
     await ctx.editMessageText(
       `✏️ Let's re-enter your details.\n\n` + ORDER_QA_PROMPTS.owner_name,
