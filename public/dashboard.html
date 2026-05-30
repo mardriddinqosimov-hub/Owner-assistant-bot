@@ -28,6 +28,44 @@
       --border: #1a2840;
     }
 
+    body.day {
+      --bg: #f1f5f9;
+      --sidebar: #ffffff;
+      --card: #ffffff;
+      --card-border: #e2e8f0;
+      --hover: #f8fafc;
+      --active-bg: #dbeafe;
+      --text: #0f172a;
+      --muted: #64748b;
+      --subtle: #475569;
+      --border: #e2e8f0;
+    }
+    body.day .detail-inner   { background: #f8fafc; }
+    body.day .item-chip      { background: #e2e8f0; border-color: #cbd5e1; color: #1e40af; }
+    body.day thead tr        { background: rgba(0,0,0,.04); }
+    body.day tbody tr.expanded { background: #eff6ff; }
+    body.day .badge-leader   { background: rgba(37,99,235,.1);  }
+    body.day .badge-factor   { background: rgba(124,58,237,.1); }
+    body.day .sidebar-logo-sub { color: #64748b; }
+    body.day .nav-section    { color: #94a3b8; }
+
+    /* theme toggle button */
+    .theme-toggle {
+      background: var(--hover);
+      border: 1px solid var(--border);
+      color: var(--subtle);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background .2s;
+      white-space: nowrap;
+    }
+    .theme-toggle:hover { background: var(--active-bg); }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
@@ -524,6 +562,7 @@
       <span class="dot"></span>
       Auto-refresh <b style="color:var(--subtle);margin:0 3px">30s</b>
     </div>
+    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">🌙 Dark</button>
     <div class="clock" id="clock"></div>
   </header>
 
@@ -697,6 +736,22 @@ function parseItemsFull(json, qty) {
 function shipLabel(s) {
   return s === 'overnight' ? 'Overnight (+$100)' : s === 'standard' ? 'Standard' : s || 'Standard';
 }
+
+/* ── Theme toggle ──────────────────────────────────────── */
+function toggleTheme() {
+  const isDay = document.body.classList.toggle('day');
+  document.getElementById('theme-btn').textContent = isDay ? '🌙 Dark' : '☀️ Day';
+  localStorage.setItem('theme', isDay ? 'day' : 'dark');
+}
+(function() {
+  if (localStorage.getItem('theme') === 'day') {
+    document.body.classList.add('day');
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('theme-btn');
+      if (btn) btn.textContent = '🌙 Dark';
+    });
+  }
+})();
 
 /* ── Clock ─────────────────────────────────────────────── */
 function startClock() {
