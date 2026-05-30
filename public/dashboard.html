@@ -443,9 +443,8 @@
     .rn-green  { color: #34d399; }
     .rn-yellow { color: #fbbf24; }
 
-    .chart-row { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-bottom: 20px; }
-
-    .chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 20px; }
+    .chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+    .chart-card-full { width: 100%; }
     .chart-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
     .chart-title  { font-size: 14px; font-weight: 600; }
     .chart-sub    { font-size: 12px; color: var(--muted); margin-top: 2px; }
@@ -465,7 +464,6 @@
       .main { margin-left: 56px; }
       .stats-row { grid-template-columns: 1fr; }
       .reports-stats { grid-template-columns: repeat(2,1fr); }
-      .chart-row { grid-template-columns: 1fr; }
       .detail-inner { grid-template-columns: 1fr; }
     }
   </style>
@@ -625,25 +623,12 @@
         </div>
       </div>
 
-      <div class="chart-row">
-        <div class="chart-card">
-          <div class="chart-header">
-            <div>
-              <div class="chart-title">Orders Per Day</div>
-              <div class="chart-sub">Last 30 days</div>
-            </div>
-          </div>
-          <canvas id="chart-orders" height="160"></canvas>
+      <div class="chart-card chart-card-full">
+        <div class="chart-header">
+          <div class="chart-title">Orders This Month</div>
+          <div class="chart-sub" id="chart-month-label">—</div>
         </div>
-        <div class="chart-card">
-          <div class="chart-header">
-            <div>
-              <div class="chart-title">Revenue Per Day</div>
-              <div class="chart-sub">Last 30 days</div>
-            </div>
-          </div>
-          <canvas id="chart-revenue" height="160"></canvas>
-        </div>
+        <canvas id="chart-orders" height="120"></canvas>
       </div>
 
       <div class="export-card">
@@ -1102,15 +1087,23 @@ async function loadReports() {
     document.getElementById('rep-month-rev').textContent = money(reportData.month.revenue) + ' revenue';
     document.getElementById('rep-total').textContent     = money(reportData.totalRevenue);
 
-    const labels  = reportData.daily.map(d => {
+    // Filter to current month only
+    const now = new Date();
+    const monthData = reportData.daily.filter(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      return dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
+    });
+
+    const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    document.getElementById('chart-month-label').textContent = monthName;
+
+    const labels = monthData.map(d => {
       const dt = new Date(d.date + 'T00:00:00');
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     });
-    const counts  = reportData.daily.map(d => d.count);
-    const revs    = reportData.daily.map(d => d.revenue);
+    const counts = monthData.map(d => d.count);
 
-    drawReportChart('chart-orders',  labels, counts, '#3b82f6', 'Orders');
-    drawReportChart('chart-revenue', labels, revs,   '#10b981', 'Revenue ($)');
+    drawReportChart('chart-orders', labels, counts, '#3b82f6', 'Orders');
   } catch {
     // silent fail — charts stay blank
   }
@@ -1122,24 +1115,16 @@ function drawReportChart(id, labels, data, color, label) {
   if (reportCharts[id]) { reportCharts[id].destroy(); }
 
   reportCharts[id] = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [{
         label,
         data,
+        backgroundColor: color + '55',
         borderColor: color,
-        borderWidth: 2.5,
-        tension: 0.4,
-        pointRadius: 3,
-        pointBackgroundColor: color,
-        fill: true,
-        backgroundColor: (ctx2) => {
-          const g = ctx2.chart.ctx.createLinearGradient(0, 0, 0, 200);
-          g.addColorStop(0, color + '40');
-          g.addColorStop(1, color + '00');
-          return g;
-        },
+        borderWidth: 1.5,
+        borderRadius: 4,
       }],
     },
     options: {
@@ -1151,15 +1136,18 @@ function drawReportChart(id, labels, data, color, label) {
           borderWidth: 1,
           titleColor: '#e2e8f0',
           bodyColor: '#94a3b8',
+          callbacks: {
+            label: (item) => `${item.parsed.y} order${item.parsed.y !== 1 ? 's' : ''}`,
+          },
         },
       },
       scales: {
         x: {
-          ticks: { color: '#64748b', font: { size: 11 }, maxTicksLimit: 8 },
-          grid:  { color: '#1a2840' },
+          ticks: { color: '#64748b', font: { size: 11 } },
+          grid:  { display: false },
         },
         y: {
-          ticks: { color: '#64748b', font: { size: 11 } },
+          ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1, precision: 0 },
           grid:  { color: '#1a2840' },
           beginAtZero: true,
         },
