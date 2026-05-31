@@ -11,6 +11,7 @@ const commandHandlers = require('./handlers/commandHandlers');
 const callbackHandlers = require('./handlers/callbackHandlers');
 const messageHandlers = require('./handlers/messageHandlers');
 const accountingHandlers = require('./handlers/accountingHandlers');
+const groupHandlers = require('./handlers/groupHandlers');
 const notifService = require('./services/notificationService');
 const dashboardModule = require('./routes/dashboard');
 
@@ -94,6 +95,9 @@ bot.action('help_menu', callbackHandlers.helpMenu);
 bot.on('text', messageHandlers.handleText);
 bot.on('photo', messageHandlers.handlePhoto);
 bot.on('document', messageHandlers.handleDocument);
+
+// ─── Group order listener ─────────────────────────────────────────────────────
+bot.on('message', groupHandlers.handleGroupMessage);
 
 // ─── Accounting bot ───────────────────────────────────────────────────────────
 let accountingBot = null;

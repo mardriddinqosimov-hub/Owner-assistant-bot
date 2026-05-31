@@ -558,10 +558,7 @@
       <input type="text" id="search-input" placeholder="Search orders..." oninput="onSearch()">
       <span class="kbd">⌘K</span>
     </div>
-    <div class="refresh-bar">
-      <span class="dot"></span>
-      Auto-refresh <b style="color:var(--subtle);margin:0 3px">30s</b>
-    </div>
+    <button class="theme-toggle" onclick="refresh()" id="refresh-btn" style="margin-right:4px">↻ Refresh</button>
     <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">🌙 Dark</button>
     <div class="clock" id="clock"></div>
   </header>
@@ -689,7 +686,6 @@ let allOrders      = [];
 let historyOrders  = [];
 let sparkCharts    = {};
 let reportData     = null;
-let refreshTimer   = null;
 
 const CABLE = { vm: 'Volvo/Mack', obd: 'OBD2 Box', rp: 'RP1226', p9: '9-Pin' };
 
@@ -715,6 +711,12 @@ function parseItems(json, qty) {
       for (const [k,n] of Object.entries(CABLE)) if ((it[k]||0) > 0) p.push(`${it[k]}× ${n}`);
       return p.length ? p : ['—'];
     }
+    if (it.type === 'manual') {
+      const p = [];
+      if (it.device) p.push(`${it.qty || 1}× ${it.device}`);
+      if (it.cable)  p.push(it.cable);
+      return p.length ? p : ['Manual'];
+    }
   } catch {}
   return [`${qty || 1}× PT30`];
 }
@@ -728,6 +730,13 @@ function parseItemsFull(json, qty) {
       if (it.pt30 > 0) p.push(`${it.pt30}× PT30 Device`);
       for (const [k,n] of Object.entries(CABLE)) if ((it[k]||0) > 0) p.push(`${it[k]}× ${n} Cable`);
       return p.join(', ') || '—';
+    }
+    if (it.type === 'manual') {
+      const p = [];
+      if (it.device)   p.push(`${it.qty || 1}× ${it.device}`);
+      if (it.cable)    p.push(`Cable: ${it.cable}`);
+      if (it.stickers) p.push(`Stickers: ${it.stickers}`);
+      return p.join(' | ') || 'Manual Order';
     }
   } catch {}
   return `${qty || 1}× PT30 Device`;
@@ -1293,7 +1302,6 @@ function refresh() {
 /* ── Init ──────────────────────────────────────────────── */
 startClock();
 loadAllOrders();
-refreshTimer = setInterval(refresh, 30000);
 </script>
 </body>
 </html>

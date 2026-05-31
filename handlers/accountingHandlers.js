@@ -42,6 +42,10 @@ function formatOrderDetail(order, user) {
       for (const [k, name] of Object.entries(CABLE_NAMES)) {
         if (items[k]) itemsText += `🔌 ${items[k]}× ${name}\n`;
       }
+    } else if (items.type === 'manual') {
+      if (items.device)   itemsText += `📱 ${items.qty || 1}× ${items.device}\n`;
+      if (items.cable)    itemsText += `🔌 Cable: ${items.cable}\n`;
+      if (items.stickers) itemsText += `🏷 Stickers: ${items.stickers}\n`;
     }
   } catch { itemsText = `📦 ${order.qty || 1}× PT30\n`; }
 
@@ -99,13 +103,13 @@ const acctActiveOrders = async (ctx) => {
       );
     }
 
-    const userIds = [...new Set(orders.map(o => o.user_id))];
-    const users = await User.findAll({ where: { id: userIds } });
+    const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+    const users = userIds.length ? await User.findAll({ where: { id: userIds } }) : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u]));
 
     const buttons = orders.map(o => {
       const u = userMap[o.user_id];
-      const platform = u?.platform === 'factor' ? 'F' : 'L';
+      const platform = !o.user_id ? 'M' : (u?.platform === 'factor' ? 'F' : 'L');
       const label = `#${o.id} [${platform}] ${o.owner_name} — $${parseFloat(o.total || 0).toFixed(2)}${o.tracking_link ? ' 📬' : ''}`;
       return [{ text: label, callback_data: `acct_order_${o.id}` }];
     });
@@ -113,7 +117,7 @@ const acctActiveOrders = async (ctx) => {
     buttons.push([{ text: '◀️ Back', callback_data: 'acct_main_menu' }]);
 
     await ctx.editMessageText(
-      `📋 <b>Active Orders</b> (${orders.length})\n\n[L] = Leader  [F] = Factor  📬 = has tracking`,
+      `📋 <b>Active Orders</b> (${orders.length})\n\n[L] Leader  [F] Factor  [M] Manual  📬 tracking`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
     );
   } catch (err) {
@@ -295,13 +299,13 @@ const acctHistory = async (ctx) => {
       );
     }
 
-    const userIds = [...new Set(orders.map(o => o.user_id))];
-    const users = await User.findAll({ where: { id: userIds } });
+    const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
+    const users = userIds.length ? await User.findAll({ where: { id: userIds } }) : [];
     const userMap = Object.fromEntries(users.map(u => [u.id, u]));
 
     const buttons = orders.map(o => {
       const u = userMap[o.user_id];
-      const platform = u?.platform === 'factor' ? 'F' : 'L';
+      const platform = !o.user_id ? 'M' : (u?.platform === 'factor' ? 'F' : 'L');
       const label = `#${o.id} [${platform}] ${o.owner_name} — $${parseFloat(o.total || 0).toFixed(2)} ✅`;
       return [{ text: label, callback_data: `acct_history_order_${o.id}` }];
     });

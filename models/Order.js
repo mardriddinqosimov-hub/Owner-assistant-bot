@@ -3,7 +3,7 @@ const sequelize = require('../config/database');
 
 const Order = sequelize.define('Order', {
   id:              { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-  user_id:         { type: DataTypes.INTEGER,  allowNull: false },
+  user_id:         { type: DataTypes.INTEGER,  allowNull: true },
   owner_name:      { type: DataTypes.STRING },
   company_name:    { type: DataTypes.STRING },
   email:           { type: DataTypes.STRING },

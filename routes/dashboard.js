@@ -57,7 +57,7 @@ router.get('/api/orders', async (req, res) => {
       order: [['created_at', 'DESC']],
     });
 
-    const userIds = [...new Set(orders.map(o => o.user_id))];
+    const userIds = [...new Set(orders.map(o => o.user_id).filter(Boolean))];
     const users = userIds.length
       ? await User.findAll({ where: { id: userIds } })
       : [];

@@ -21,6 +21,16 @@ async function notifyAdminNewOrder(fileId, fileType, caption) {
   }
 }
 
+async function notifyAdminText(message) {
+  const sender = _accountingBot || _mainBot;
+  if (!sender) return;
+  try {
+    await sender.telegram.sendMessage(ADMIN_ID, message, { parse_mode: 'HTML' });
+  } catch (err) {
+    logger.warn('Admin text notification failed:', err.message);
+  }
+}
+
 async function notifyCustomer(telegramId, message, options = {}) {
   if (!_mainBot) return;
   try {
@@ -30,4 +40,4 @@ async function notifyCustomer(telegramId, message, options = {}) {
   }
 }
 
-module.exports = { setAccountingBot, setMainBot, notifyAdminNewOrder, notifyCustomer };
+module.exports = { setAccountingBot, setMainBot, notifyAdminNewOrder, notifyAdminText, notifyCustomer };
