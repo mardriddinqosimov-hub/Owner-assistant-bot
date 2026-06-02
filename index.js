@@ -61,6 +61,8 @@ bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
 bot.action(/^driver_location_(.+)$/, callbackHandlers.driverLocation);
 bot.action('drivers_list', callbackHandlers.driversList);
 bot.action('drivers_list_refresh', callbackHandlers.driversListRefresh);
+bot.action(/^drivers_cat_(D|ON|SB|OFF)$/, callbackHandlers.driversCatShow);
+bot.action(/^drivers_catref_(D|ON|SB|OFF)$/, callbackHandlers.driversCatRefresh);
 
 // ─── Order submenu ────────────────────────────────────────────────────────────
 bot.action('order_devices_start', callbackHandlers.orderStart);

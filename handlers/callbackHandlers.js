@@ -8,6 +8,22 @@ const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
 const { fetchDriverStatus, fetchVehicleStatus, formatSeconds } = require('../services/eldService');
 
+// ─── Driver Status Groups ────────────────────────────────────────────────────
+
+const STATUS_GROUPS = {
+  D:   { label: 'Driving',  emoji: '🟢' },
+  ON:  { label: 'On Duty',  emoji: '🔵' },
+  SB:  { label: 'Sleeper',  emoji: '🟡' },
+  OFF: { label: 'Off Duty', emoji: '⚫' },
+};
+
+function statusGroupKey(status) {
+  if (!status || status === 'OFF DUTY') return 'OFF';
+  if (status === 'ON DUTY') return 'ON';
+  if (status === 'SLEEPER BERTH') return 'SB';
+  return 'D'; // DRIVING, PERSONAL CONVEYANCE, YARD MOVE
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatTime(date) {
@@ -71,22 +87,31 @@ const driversList = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.reply('Please /start first.');
 
-    const driverList = await Driver.findAll({ where: { user_id: user.id } });
-    if (!driverList.length) {
+    const drivers = await Driver.findAll({ where: { user_id: user.id } });
+    if (!drivers.length) {
       return ctx.editMessageText('No drivers found.\n\nConnect your ELD:\n/setapi YOUR_COMPANY_KEY');
     }
 
+    const counts = { D: 0, ON: 0, SB: 0, OFF: 0 };
+    for (const d of drivers) counts[statusGroupKey(d.current_status)]++;
+
+    const makeBtn = (key) => {
+      const g = STATUS_GROUPS[key];
+      return [{ text: `${g.emoji}  ${g.label}  (${counts[key]})`, callback_data: `drivers_cat_${key}` }];
+    };
+
     try {
       await ctx.editMessageText(
-        `👥 <b>Your Drivers (${driverList.length})</b>`,
+        `👥 <b>Your Drivers (${drivers.length})</b>\n\nSelect a status category:`,
         {
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
-              ...driverList.map((d) => [
-                { text: `👤 ${d.driver_name}`, callback_data: `driver_details_${d.driver_id}` },
-              ]),
-              [{ text: '🔄 Refresh List', callback_data: 'drivers_list_refresh' }],
+              makeBtn('D'),
+              makeBtn('ON'),
+              makeBtn('SB'),
+              makeBtn('OFF'),
+              [{ text: '🔄 Refresh', callback_data: 'drivers_list_refresh' }],
               [{ text: '◀️ Back', callback_data: 'main_menu' }],
             ],
           },
@@ -114,6 +139,67 @@ const driversListRefresh = async (ctx) => {
     await driversList(ctx);
   } catch (error) {
     logger.error('driversListRefresh error:', error);
+    await ctx.reply('❌ Error refreshing.');
+  }
+};
+
+async function renderCategoryList(ctx, key) {
+  const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+  if (!user) return ctx.reply('Please /start first.');
+
+  const allDrivers = await Driver.findAll({ where: { user_id: user.id } });
+  const g = STATUS_GROUPS[key];
+  const drivers = allDrivers.filter(d => statusGroupKey(d.current_status) === key);
+
+  const driverBtns = drivers.map(d => [{
+    text: `👤 ${d.driver_name}`,
+    callback_data: `driver_details_${d.driver_id}`,
+  }]);
+
+  try {
+    await ctx.editMessageText(
+      `${g.emoji} <b>${g.label}</b>  (${drivers.length} driver${drivers.length !== 1 ? 's' : ''})` +
+      (drivers.length === 0 ? '\n\nNo drivers in this status right now.' : ''),
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            ...driverBtns,
+            [{ text: '🔄 Refresh', callback_data: `drivers_catref_${key}` }],
+            [{ text: '◀️ Back', callback_data: 'drivers_list' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    if (!err.message?.includes('message is not modified')) throw err;
+  }
+}
+
+const driversCatShow = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await renderCategoryList(ctx, ctx.match[1]);
+  } catch (error) {
+    logger.error('driversCatShow error:', error);
+    await ctx.reply('❌ Error loading category.');
+  }
+};
+
+const driversCatRefresh = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Refreshing...');
+    const key = ctx.match[1];
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    if (user.company_api_key) {
+      await syncDrivers(user, user.company_api_key).catch(e => logger.warn('Category refresh sync failed:', e.message));
+    }
+
+    await renderCategoryList(ctx, key);
+  } catch (error) {
+    logger.error('driversCatRefresh error:', error);
     await ctx.reply('❌ Error refreshing.');
   }
 };
@@ -1022,6 +1108,7 @@ const helpMenu = async (ctx) => {
 
 module.exports = {
   driverDetails, driverRefresh, driversList, driversListRefresh, driverLocation,
+  driversCatShow, driversCatRefresh,
   orderStart, orderNew,
   orderFullSet, fsSelectCable, fsSelectCount, fsSelectShipping,
   orderCustom, cuSelectItem, cuSetQty, cuShowShipping, cuSelectShipping,
