@@ -91,11 +91,16 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
 const start = async (ctx) => {
   try {
     const telegramId = ctx.from.id;
+    const tgInfo = {
+      first_name: ctx.from.first_name || null,
+      last_name:  ctx.from.last_name  || null,
+      username:   ctx.from.username   || null,
+    };
     let user = await User.findOne({ where: { telegram_id: telegramId } });
     if (!user) {
-      user = await User.create({ telegram_id: telegramId });
+      user = await User.create({ telegram_id: telegramId, ...tgInfo });
     } else {
-      await user.update({ last_active: new Date() });
+      await user.update({ last_active: new Date(), ...tgInfo });
     }
 
     const hasKey = !!user.company_api_key;

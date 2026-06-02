@@ -33,6 +33,13 @@ async function initDatabase() {
 bot.use(async (ctx, next) => {
   try {
     ctx.session = ctx.session || {};
+    // Block check (private chats only)
+    if (ctx.chat?.type === 'private' && ctx.from?.id) {
+      const u = await User.findOne({ where: { telegram_id: ctx.from.id } });
+      if (u?.blocked) {
+        return ctx.reply('⛔ Your access has been restricted. Contact admin.');
+      }
+    }
     await next();
   } catch (error) {
     logger.error('Middleware error:', error);

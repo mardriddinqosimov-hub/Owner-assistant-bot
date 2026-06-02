@@ -491,6 +491,43 @@
     .export-info h3 { font-size: 15px; font-weight: 600; }
     .export-info p  { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
+    /* ── Users page ────────────────────────────────────────── */
+    .users-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
+    .user-stat-card { background:var(--card); border:1px solid var(--card-border); border-radius:14px; padding:18px 20px; }
+    .user-stat-card .usn { font-size:28px; font-weight:700; margin:6px 0 2px; }
+    .user-stat-card .usl { font-size:12px; color:var(--muted); }
+    .users-toolbar { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+    .filter-pills { display:flex; gap:6px; flex-wrap:wrap; }
+    .pill { background:var(--card); border:1px solid var(--card-border); color:var(--subtle); border-radius:20px; padding:5px 14px; font-size:12px; cursor:pointer; transition:all .15s; white-space:nowrap; }
+    .pill.active { background:var(--blue); border-color:var(--blue); color:#fff; }
+    .pill:hover:not(.active) { background:var(--hover); }
+    .users-search { flex:1; min-width:180px; background:var(--card); border:1px solid var(--card-border); border-radius:8px; padding:7px 12px; color:var(--text); font-size:13px; outline:none; }
+    .users-search:focus { border-color:var(--blue); }
+    .users-table-wrap { background:var(--card); border:1px solid var(--card-border); border-radius:14px; overflow:hidden; }
+    .users-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .users-table thead tr { background:rgba(59,130,246,.08); }
+    .users-table th { padding:11px 14px; text-align:left; font-size:11px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; white-space:nowrap; }
+    .users-table td { padding:11px 14px; border-top:1px solid var(--border); vertical-align:middle; }
+    .users-table tbody tr:hover { background:var(--hover); }
+    .users-table tbody tr.blocked-row { opacity:.55; }
+    .role-badge { display:inline-flex; align-items:center; gap:4px; border-radius:6px; padding:3px 9px; font-size:11px; font-weight:600; }
+    .role-owner   { background:rgba(16,185,129,.12); color:#10b981; }
+    .role-safety  { background:rgba(245,158,11,.12);  color:#f59e0b; }
+    .role-unknown { background:rgba(100,116,139,.12); color:#64748b; }
+    .plat-badge { display:inline-block; border-radius:5px; padding:2px 8px; font-size:11px; font-weight:600; }
+    .plat-leader { background:rgba(37,99,235,.1); color:#3b82f6; }
+    .plat-factor { background:rgba(124,58,237,.1); color:#a78bfa; }
+    .plat-none   { background:rgba(100,116,139,.1); color:#64748b; }
+    .user-actions { display:flex; gap:6px; align-items:center; }
+    .role-select { background:var(--hover); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:4px 8px; font-size:12px; cursor:pointer; }
+    .btn-block   { background:rgba(239,68,68,.1);  color:#ef4444; border:1px solid rgba(239,68,68,.2);  border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+    .btn-unblock { background:rgba(16,185,129,.1); color:#10b981; border:1px solid rgba(16,185,129,.2); border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; white-space:nowrap; }
+    .btn-block:hover   { background:rgba(239,68,68,.2); }
+    .btn-unblock:hover { background:rgba(16,185,129,.2); }
+    .u-name { font-weight:600; }
+    .u-tg   { font-size:11px; color:var(--muted); }
+    .u-email { font-size:11px; color:var(--muted); }
+
     /* ── Responsive ────────────────────────────────────────── */
     @media (max-width: 900px) {
       .sidebar { width: 56px; }
@@ -545,6 +582,12 @@
     <div class="nav-item">
       <span class="nav-icon">🚚</span>
       <span>Carriers</span>
+    </div>
+
+    <div class="nav-section">Admin</div>
+    <div class="nav-item" id="nav-users" onclick="showPage('users')">
+      <span class="nav-icon">👥</span>
+      <span>Users</span>
     </div>
   </nav>
 </aside>
@@ -664,6 +707,61 @@
       </div>
     </div>
 
+    <!-- ── Users ──────────────────────────────────────── -->
+    <div class="page" id="page-users">
+      <div class="users-stats">
+        <div class="user-stat-card">
+          <div class="usl">Total Users</div>
+          <div class="usn" id="us-total" style="color:var(--blue)">—</div>
+          <div class="usl" id="us-total-sub">registered accounts</div>
+        </div>
+        <div class="user-stat-card">
+          <div class="usl">Owners</div>
+          <div class="usn" id="us-owners" style="color:#10b981">—</div>
+          <div class="usl">role: owner</div>
+        </div>
+        <div class="user-stat-card">
+          <div class="usl">Safety Team</div>
+          <div class="usn" id="us-safety" style="color:#f59e0b">—</div>
+          <div class="usl">role: safety</div>
+        </div>
+        <div class="user-stat-card">
+          <div class="usl">Blocked</div>
+          <div class="usn" id="us-blocked" style="color:#ef4444">—</div>
+          <div class="usl">restricted access</div>
+        </div>
+      </div>
+
+      <div class="users-toolbar">
+        <div class="filter-pills">
+          <span class="pill active" data-uf="all"     onclick="setUserFilter('all')">All</span>
+          <span class="pill"        data-uf="leader"   onclick="setUserFilter('leader')">Leader ELD</span>
+          <span class="pill"        data-uf="factor"   onclick="setUserFilter('factor')">Factor ELD</span>
+          <span class="pill"        data-uf="owner"    onclick="setUserFilter('owner')">Owners</span>
+          <span class="pill"        data-uf="safety"   onclick="setUserFilter('safety')">Safety Team</span>
+          <span class="pill"        data-uf="blocked"  onclick="setUserFilter('blocked')">Blocked</span>
+        </div>
+        <input class="users-search" id="users-search" placeholder="Search name, company, username…" oninput="renderUsers()">
+      </div>
+
+      <div class="users-table-wrap">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Company</th>
+              <th>Platform</th>
+              <th>Role</th>
+              <th>Orders</th>
+              <th>Last Active</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -686,6 +784,8 @@ let allOrders      = [];
 let historyOrders  = [];
 let sparkCharts    = {};
 let reportData     = null;
+let allUsers       = [];
+let userFilter     = 'all';
 
 const CABLE = { vm: 'Volvo/Mack', obd: 'OBD2 Box', rp: 'RP1226', p9: '9-Pin' };
 
@@ -794,6 +894,7 @@ function showPage(name) {
     'order-management': 'Order Management',
     'order-history':    'Order History',
     'reports':          'Reports',
+    'users':            'Users',
   };
   document.getElementById('topbar-title').textContent = titles[name] || '';
 
@@ -815,6 +916,10 @@ function showPage(name) {
     document.getElementById('nav-reports').classList.add('active');
     searchWrap.style.display = 'none';
     loadReports();
+  } else if (name === 'users') {
+    document.getElementById('nav-users').classList.add('active');
+    searchWrap.style.display = 'none';
+    loadUsers();
   }
 }
 
@@ -1291,12 +1396,118 @@ async function exportExcel() {
   }
 }
 
+/* ── Users ─────────────────────────────────────────────── */
+async function loadUsers() {
+  try {
+    const r = await fetch('/admin/api/users');
+    allUsers = await r.json();
+
+    const owners  = allUsers.filter(u => u.role === 'owner').length;
+    const safety  = allUsers.filter(u => u.role === 'safety').length;
+    const blocked = allUsers.filter(u => u.blocked).length;
+    document.getElementById('us-total').textContent   = allUsers.length;
+    document.getElementById('us-total-sub').textContent = `${allUsers.filter(u=>u.company_name).length} with company`;
+    document.getElementById('us-owners').textContent  = owners;
+    document.getElementById('us-safety').textContent  = safety;
+    document.getElementById('us-blocked').textContent = blocked;
+
+    renderUsers();
+  } catch(e) {
+    document.getElementById('users-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:30px">Failed to load users</td></tr>';
+  }
+}
+
+function setUserFilter(f) {
+  userFilter = f;
+  document.querySelectorAll('.pill[data-uf]').forEach(p => p.classList.toggle('active', p.dataset.uf === f));
+  renderUsers();
+}
+
+function renderUsers() {
+  const q = (document.getElementById('users-search')?.value || '').toLowerCase();
+  let list = allUsers.filter(u => {
+    if (userFilter === 'leader')  return u.platform === 'leader';
+    if (userFilter === 'factor')  return u.platform === 'factor';
+    if (userFilter === 'owner')   return u.role === 'owner';
+    if (userFilter === 'safety')  return u.role === 'safety';
+    if (userFilter === 'blocked') return u.blocked;
+    return true;
+  });
+  if (q) list = list.filter(u =>
+    (u.first_name+' '+u.last_name).toLowerCase().includes(q) ||
+    (u.username||'').toLowerCase().includes(q) ||
+    (u.company_name||'').toLowerCase().includes(q) ||
+    (u.contact_email||'').toLowerCase().includes(q)
+  );
+
+  const tbody = document.getElementById('users-tbody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:30px">No users found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = list.map(u => {
+    const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+    const platClass = u.platform === 'leader' ? 'plat-leader' : u.platform === 'factor' ? 'plat-factor' : 'plat-none';
+    const platLabel = u.platform === 'leader' ? 'Leader ELD' : u.platform === 'factor' ? 'Factor ELD' : '—';
+    const roleClass = u.role === 'owner' ? 'role-owner' : u.role === 'safety' ? 'role-safety' : 'role-unknown';
+    const roleIcon  = u.role === 'owner' ? '👤' : u.role === 'safety' ? '🛡' : '?';
+    const lastActive = u.last_active ? new Date(u.last_active).toLocaleDateString('en-US',{month:'2-digit',day:'2-digit',year:'numeric'}) : '—';
+    const blockBtn = u.blocked
+      ? `<button class="btn-unblock" onclick="toggleBlock(${u.id},false,this)">✓ Unblock</button>`
+      : `<button class="btn-block"   onclick="toggleBlock(${u.id},true,this)">⛔ Block</button>`;
+    return `<tr class="${u.blocked?'blocked-row':''}">
+      <td>
+        <div class="u-name">${esc(name)}</div>
+        <div class="u-tg">${u.username ? '@'+esc(u.username) : ''} · ID ${esc(u.telegram_id)}</div>
+        ${u.contact_email ? `<div class="u-email">${esc(u.contact_email)}</div>` : ''}
+      </td>
+      <td>${esc(u.company_name) || '<span style="color:var(--muted)">—</span>'}</td>
+      <td><span class="plat-badge ${platClass}">${platLabel}</span></td>
+      <td><span class="role-badge ${roleClass}">${roleIcon} ${u.role}</span></td>
+      <td style="text-align:center">${u.orders}</td>
+      <td style="color:var(--muted)">${lastActive}</td>
+      <td>
+        <div class="user-actions">
+          <select class="role-select" onchange="setRole(${u.id},this.value)" data-uid="${u.id}">
+            <option value="unknown" ${u.role==='unknown'?'selected':''}>Unknown</option>
+            <option value="owner"   ${u.role==='owner'  ?'selected':''}>Owner</option>
+            <option value="safety"  ${u.role==='safety' ?'selected':''}>Safety</option>
+          </select>
+          ${blockBtn}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function setRole(userId, role) {
+  try {
+    await fetch(`/admin/api/users/${userId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({role}) });
+    const u = allUsers.find(x => x.id === userId);
+    if (u) u.role = role;
+    renderUsers();
+    loadUsers(); // refresh stats
+  } catch(e) { alert('Failed to update role'); }
+}
+
+async function toggleBlock(userId, blocked, btn) {
+  btn.disabled = true;
+  try {
+    await fetch(`/admin/api/users/${userId}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({blocked}) });
+    const u = allUsers.find(x => x.id === userId);
+    if (u) u.blocked = blocked;
+    loadUsers();
+  } catch(e) { alert('Failed to update user'); btn.disabled = false; }
+}
+
 /* ── Auto-refresh ──────────────────────────────────────── */
 function refresh() {
-  if (currentPage === 'active-orders')    loadAllOrders();
-  else if (currentPage === 'order-history')   loadHistory();
+  if (currentPage === 'active-orders')     loadAllOrders();
+  else if (currentPage === 'order-history')    loadHistory();
   else if (currentPage === 'order-management') loadMgmt();
-  else if (currentPage === 'reports')     loadReports();
+  else if (currentPage === 'reports')      loadReports();
+  else if (currentPage === 'users')        loadUsers();
 }
 
 /* ── Init ──────────────────────────────────────────────── */

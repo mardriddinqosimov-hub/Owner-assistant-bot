@@ -119,6 +119,54 @@ router.get('/payment/:orderId', async (req, res) => {
   }
 });
 
+// ── Users list ───────────────────────────────────────────────────────────────
+router.get('/api/users', async (req, res) => {
+  try {
+    const users = await User.findAll({ order: [['created_at', 'DESC']] });
+    const orderCounts = await Order.findAll({
+      attributes: ['user_id', [require('sequelize').fn('COUNT', require('sequelize').col('id')), 'cnt']],
+      where: { user_id: { [Op.not]: null } },
+      group: ['user_id'],
+    });
+    const countMap = Object.fromEntries(orderCounts.map(r => [r.user_id, parseInt(r.get('cnt'))]));
+
+    res.json(users.map(u => ({
+      id:           u.id,
+      telegram_id:  String(u.telegram_id),
+      first_name:   u.first_name || '',
+      last_name:    u.last_name  || '',
+      username:     u.username   || '',
+      company_name: u.company_name || '',
+      contact_email:u.contact_email || '',
+      platform:     u.platform || '',
+      role:         u.role || 'unknown',
+      blocked:      !!u.blocked,
+      orders:       countMap[u.id] || 0,
+      created_at:   u.created_at,
+      last_active:  u.last_active,
+    })));
+  } catch (err) {
+    logger.error('Users list error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
+router.patch('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Not found' });
+    const { role, blocked } = req.body;
+    const update = {};
+    if (role !== undefined) update.role = role;
+    if (blocked !== undefined) update.blocked = blocked;
+    await user.update(update);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('User update error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
 // ── Mark order delivered ──────────────────────────────────────────────────────
 router.post('/api/orders/:id/deliver', async (req, res) => {
   try {
