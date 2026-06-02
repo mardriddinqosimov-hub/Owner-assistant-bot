@@ -359,7 +359,7 @@ const haHandleText = async (ctx) => {
   if (target === 'safety') where.role     = 'safety';
   if (target === 'leader') where.platform = 'leader';
   if (target === 'factor') where.platform = 'factor';
-  where.blocked = false;
+  where.blocked = { [Op.not]: true };
 
   const users = await User.findAll({ where });
 
