@@ -167,6 +167,19 @@ router.patch('/api/users/:id', async (req, res) => {
   }
 });
 
+// ── Update tracking link ──────────────────────────────────────────────────────
+router.patch('/api/orders/:id/tracking', async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    await order.update({ tracking_link: req.body.tracking_link || null });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Update tracking error:', err);
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
 // ── Mark order delivered ──────────────────────────────────────────────────────
 router.post('/api/orders/:id/deliver', async (req, res) => {
   try {

@@ -1102,12 +1102,17 @@ function renderTable(orders, containerId, isHistory) {
               <div class="di"><span class="dl">Total</span><span class="dv" style="color:#34d399;font-weight:700">${money(o.total)}</span></div>
               <div class="di"><span class="dl">Placed</span><span class="dv">${fmt(o.created_at)}</span></div>
               ${o.status === 'delivered' ? `<div class="di"><span class="dl">Delivered</span><span class="dv">${fmt(o.updated_at)}</span></div>` : ''}
-              ${o.tracking_link
-                ? `<div class="di"><span class="dl">Tracking</span><span class="dv">
-                    <div class="tracking-box">${esc(o.tracking_link)}</div>
-                    ${o.tracking_link.startsWith('http') ? `<a href="${esc(o.tracking_link)}" target="_blank" style="color:#60a5fa;font-size:12px;margin-top:4px;display:block">Open link ↗</a>` : ''}
-                  </span></div>`
-                : `<div class="di"><span class="dl">Tracking</span><span class="dv" style="color:var(--muted)">Not added yet</span></div>`}
+              <div class="di"><span class="dl">Tracking</span><span class="dv">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+                  <input id="track-input-${o.id}" type="text" value="${esc(o.tracking_link || '')}"
+                    placeholder="Paste tracking URL or number…"
+                    style="flex:1;min-width:160px;background:var(--hover);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 9px;font-size:12px;outline:none" />
+                  <button class="btn btn-blue" onclick="event.stopPropagation();saveTracking(${o.id})" style="padding:5px 12px;font-size:12px;white-space:nowrap">💾 Save</button>
+                </div>
+                <span id="track-link-${o.id}" style="${o.tracking_link && o.tracking_link.startsWith('http') ? '' : 'display:none'}">
+                  <a href="${esc(o.tracking_link || '')}" target="_blank" style="color:#60a5fa;font-size:12px">Open link ↗</a>
+                </span>
+              </span></div>
             </div>
             <div class="detail-section">
               <h4>👤 Customer Info</h4>
@@ -1146,6 +1151,36 @@ function toggleDetail(id, containerId) {
   if (!isOpen) {
     detail.classList.add('open');
     row.classList.add('expanded');
+  }
+}
+
+/* ── Save Tracking Link ────────────────────────────────── */
+async function saveTracking(orderId) {
+  const input = document.getElementById('track-input-' + orderId);
+  const link = input.value.trim();
+  const btn = input.nextElementSibling;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  try {
+    const r = await fetch(`/admin/api/orders/${orderId}/tracking`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tracking_link: link }),
+    });
+    if (!r.ok) throw new Error();
+    const linkEl = document.getElementById('track-link-' + orderId);
+    if (link.startsWith('http')) {
+      linkEl.querySelector('a').href = link;
+      linkEl.style.display = '';
+    } else {
+      linkEl.style.display = 'none';
+    }
+    btn.textContent = '✓ Saved';
+    setTimeout(() => { btn.textContent = '💾 Save'; btn.disabled = false; }, 1500);
+  } catch {
+    btn.textContent = '💾 Save';
+    btn.disabled = false;
+    alert('Failed to save tracking. Please try again.');
   }
 }
 
