@@ -433,10 +433,10 @@ const orderFullSet = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '9-Pin', callback_data: 'fs_cable_p9' }],
-            [{ text: '14-Pin', callback_data: 'fs_cable_rp' }],
-            [{ text: '16-Pin Light Duty', callback_data: 'fs_cable_obd' }],
-            [{ text: '16-Pin Heavy Duty', callback_data: 'fs_cable_vm' }],
+            [{ text: '🔌 9-Pin', callback_data: 'fs_cable_p9' }],
+            [{ text: '⚡ 14-Pin', callback_data: 'fs_cable_rp' }],
+            [{ text: '🚐 16-Pin Light Duty', callback_data: 'fs_cable_obd' }],
+            [{ text: '🚛 16-Pin Heavy Duty', callback_data: 'fs_cable_vm' }],
             [{ text: '◀️ Back', callback_data: 'order_new' }],
           ],
         },
@@ -551,10 +551,10 @@ async function renderCustomCart(ctx, session) {
   const keyboard = {
     inline_keyboard: [
       [{ text: `📱 PT30 Device${items.pt30 > 0 ? ` [×${items.pt30}]` : ''}`, callback_data: 'cu_item_pt30' }],
-      [{ text: `9-Pin${items.p9 > 0 ? ` [×${items.p9}]` : ''}`, callback_data: 'cu_item_p9' }],
-      [{ text: `14-Pin${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
-      [{ text: `16-Pin Light Duty${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
-      [{ text: `16-Pin Heavy Duty${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
+      [{ text: `🔌 9-Pin${items.p9 > 0 ? ` [×${items.p9}]` : ''}`, callback_data: 'cu_item_p9' }],
+      [{ text: `⚡ 14-Pin${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
+      [{ text: `🚐 16-Pin Light Duty${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
+      [{ text: `🚛 16-Pin Heavy Duty${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
       ...(subtotal > 0 ? [[{ text: '🚚 Select Shipping →', callback_data: 'cu_shipping' }]] : []),
       [{ text: '◀️ Back', callback_data: 'order_new' }],
     ],
@@ -594,11 +594,11 @@ const cuSelectItem = async (ctx) => {
 
     const current = session.items[item] || 0;
     const ITEM_DISPLAY = {
-      pt30: 'PT30 Device',
-      vm:   '16-Pin Heavy Duty',
-      obd:  '16-Pin Light Duty',
-      rp:   '14-Pin',
-      p9:   '9-Pin',
+      pt30: '📱 PT30 Device',
+      vm:   '🚛 16-Pin Heavy Duty',
+      obd:  '🚐 16-Pin Light Duty',
+      rp:   '⚡ 14-Pin',
+      p9:   '🔌 9-Pin',
     };
 
     await ctx.editMessageText(
