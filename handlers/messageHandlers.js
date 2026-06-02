@@ -2,6 +2,7 @@ const logger = require('../utils/logger');
 const User = require('../models/User');
 const Order = require('../models/Order');
 const notifService = require('../services/notificationService');
+const { notifyHeadAdmin } = notifService;
 const {
   orderSessions,
   ORDER_STEPS,
@@ -118,8 +119,9 @@ async function completeOrder(ctx, session, fileId, type) {
     logger.warn('Failed to forward to order group:', err.message);
   }
 
-  // Notify accounting bot
+  // Notify accounting bot + head admin
   await notifService.notifyAdminNewOrder(fileId, type, adminCaption);
+  if (order) await notifyHeadAdmin(order);
 
   await ctx.reply(
     `✅ <b>Order Completed!</b>${order ? ` (Order #${order.id})` : ''}\n\n` +

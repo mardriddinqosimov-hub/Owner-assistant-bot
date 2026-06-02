@@ -11,6 +11,7 @@ const commandHandlers = require('./handlers/commandHandlers');
 const callbackHandlers = require('./handlers/callbackHandlers');
 const messageHandlers = require('./handlers/messageHandlers');
 const accountingHandlers = require('./handlers/accountingHandlers');
+const adminBotHandlers  = require('./handlers/adminBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
 const notifService = require('./services/notificationService');
 const dashboardModule = require('./routes/dashboard');
@@ -153,6 +154,41 @@ function setupAccountingBot() {
   accountingBot.on('text', accountingHandlers.acctHandleText);
 }
 
+// ─── Head Admin bot ──────────────────────────────────────────────────────────
+let adminBot = null;
+
+function setupAdminBot() {
+  if (!process.env.HEAD_ADMIN_BOT_TOKEN) {
+    logger.warn('HEAD_ADMIN_BOT_TOKEN not set — admin bot disabled');
+    return;
+  }
+
+  adminBot = new Telegraf(process.env.HEAD_ADMIN_BOT_TOKEN);
+
+  // Only the head admin can use this bot
+  adminBot.use(async (ctx, next) => {
+    if (String(ctx.from?.id) !== String(ADMIN_ID)) return;
+    return next();
+  });
+
+  adminBot.command('start', adminBotHandlers.haStart);
+
+  adminBot.action('ha_main',      adminBotHandlers.haMain);
+  adminBot.action('ha_stats',     adminBotHandlers.haStats);
+  adminBot.action('ha_orders',    adminBotHandlers.haOrders);
+  adminBot.action('ha_broadcast', adminBotHandlers.haBroadcast);
+
+  adminBot.action(/^ha_users_(\d+)$/,         (ctx) => adminBotHandlers.haUsers(ctx, parseInt(ctx.match[1])));
+  adminBot.action(/^ha_user_(\d+)$/,           adminBotHandlers.haUserDetail);
+  adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
+  adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
+  adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
+  adminBot.action(/^ha_order_(\d+)$/,          adminBotHandlers.haOrderDetail);
+  adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
+
+  adminBot.on('text', adminBotHandlers.haHandleText);
+}
+
 // ─── DOT inspection polling (every 10 min) ────────────────────────────────────
 function startInspectionPolling() {
   const INTERVAL = 10 * 60 * 1000;
@@ -165,10 +201,12 @@ async function startBot() {
   try {
     await initDatabase();
     setupAccountingBot();
+    setupAdminBot();
 
     // Wire notification service
     notifService.setMainBot(bot);
     if (accountingBot) notifService.setAccountingBot(accountingBot);
+    if (adminBot)      notifService.setAdminBot(adminBot);
 
     // ─── Express (always runs — serves dashboard + health + optional webhook) ──
     const app = express();
@@ -202,6 +240,13 @@ async function startBot() {
       logger.info('✅ Accounting bot polling started');
     }
 
+    // Admin bot
+    if (adminBot) {
+      await adminBot.telegram.deleteWebhook();
+      adminBot.launch();
+      logger.info('✅ Head admin bot polling started');
+    }
+
     startInspectionPolling();
     logger.info('🤖 BOT ONLINE - READY FOR COMMANDS');
   } catch (error) {
@@ -213,11 +258,13 @@ async function startBot() {
 process.once('SIGINT', () => {
   bot.stop('SIGINT');
   if (accountingBot) accountingBot.stop('SIGINT');
+  if (adminBot) adminBot.stop('SIGINT');
   process.exit(0);
 });
 process.once('SIGTERM', () => {
   bot.stop('SIGTERM');
   if (accountingBot) accountingBot.stop('SIGTERM');
+  if (adminBot) adminBot.stop('SIGTERM');
   process.exit(0);
 });
 

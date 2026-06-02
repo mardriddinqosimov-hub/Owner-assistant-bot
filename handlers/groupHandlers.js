@@ -1,5 +1,5 @@
 const Order = require('../models/Order');
-const { notifyAdminText } = require('../services/notificationService');
+const { notifyAdminText, notifyHeadAdmin } = require('../services/notificationService');
 const logger = require('../utils/logger');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
@@ -85,6 +85,7 @@ async function handleGroupMessage(ctx) {
       `⚠️ <b>Manual order — no payment file</b>`;
 
     await notifyAdminText(notice);
+    await notifyHeadAdmin(order);
   } catch (err) {
     logger.error('handleGroupMessage error:', err);
   }
