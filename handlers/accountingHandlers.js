@@ -9,10 +9,10 @@ const logger = require('../utils/logger');
 const acctSessions = new Map();
 
 const CABLE_NAMES = {
-  vm:  '16-Pin Volvo/Mack',
-  obd: '16-Pin OBD2 Box Truck',
-  rp:  '14-Pin RP1226',
-  p9:  '9-Pin Cable',
+  vm:  '16-Pin Heavy Duty',
+  obd: '16-Pin Light Duty',
+  rp:  '14-Pin',
+  p9:  '9-Pin',
 };
 
 const MAIN_KB = {

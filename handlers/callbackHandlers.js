@@ -152,7 +152,7 @@ async function renderCategoryList(ctx, key) {
   const drivers = allDrivers.filter(d => statusGroupKey(d.current_status) === key);
 
   const driverBtns = drivers.map(d => [{
-    text: `👤 ${d.driver_name}`,
+    text: `🚛 ${d.driver_name}`,
     callback_data: `driver_details_${d.driver_id}`,
   }]);
 
@@ -310,10 +310,10 @@ const PRICES = {
 };
 
 const CABLE_NAMES = {
-  vm:  '16-Pin Volvo/Mack',
-  obd: '16-Pin OBD2 Box Truck',
-  rp:  '14-Pin RP1226',
-  p9:  '9-Pin Cable',
+  vm:  '16-Pin Heavy Duty',
+  obd: '16-Pin Light Duty',
+  rp:  '14-Pin',
+  p9:  '9-Pin',
 };
 
 const HISTORY_PAGE_SIZE = 5;
@@ -406,8 +406,8 @@ const orderNew = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🎯 Full Set ($179.99)', callback_data: 'order_fullset' }],
-            [{ text: '🛒 Custom Quantity', callback_data: 'order_custom' }],
+            [{ text: '🎯 Full Set', callback_data: 'order_fullset' }],
+            [{ text: '🛒 Custom Order', callback_data: 'order_custom' }],
             [{ text: '◀️ Back', callback_data: 'order_devices_start' }],
           ],
         },
@@ -425,7 +425,7 @@ const orderFullSet = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      `🎯 <b>Full Set — $179.99</b>\n\n` +
+      `🎯 <b>Full Set</b>\n\n` +
       `Includes: 1× PT30 Device + 1× Cable + Stickers\n` +
       `Standard shipping included\n\n` +
       `Select cable type:`,
@@ -433,10 +433,10 @@ const orderFullSet = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '🚛 16-Pin Volvo/Mack', callback_data: 'fs_cable_vm' }],
-            [{ text: '📦 16-Pin OBD2 Box Truck', callback_data: 'fs_cable_obd' }],
-            [{ text: '🔧 14-Pin RP1226', callback_data: 'fs_cable_rp' }],
-            [{ text: '🔌 9-Pin Cable', callback_data: 'fs_cable_p9' }],
+            [{ text: '9-Pin', callback_data: 'fs_cable_p9' }],
+            [{ text: '14-Pin', callback_data: 'fs_cable_rp' }],
+            [{ text: '16-Pin Light Duty', callback_data: 'fs_cable_obd' }],
+            [{ text: '16-Pin Heavy Duty', callback_data: 'fs_cable_vm' }],
             [{ text: '◀️ Back', callback_data: 'order_new' }],
           ],
         },
@@ -496,8 +496,8 @@ const fsSelectCount = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: `🚚 Standard (included) — Total $${baseTotal}`, callback_data: 'fs_shp_s' }],
-            [{ text: `🚀 Overnight (+$79.99) — Total $${ovnTotal}`, callback_data: 'fs_shp_o' }],
+            [{ text: `🚚 Standard Shipping (included)`, callback_data: 'fs_shp_s' }],
+            [{ text: `🚀 Overnight Shipping`, callback_data: 'fs_shp_o' }],
             [{ text: '◀️ Back', callback_data: 'order_fullset' }],
           ],
         },
@@ -539,23 +539,22 @@ async function renderCustomCart(ctx, session) {
     ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable;
 
   let summary = '';
-  if (items.pt30 > 0) summary += `📱 ${items.pt30}× PT30 Device @ $${PRICES.pt30} = $${(items.pt30 * PRICES.pt30).toFixed(2)}\n`;
+  if (items.pt30 > 0) summary += `📱 ${items.pt30}× PT30 Device\n`;
   for (const [k, n] of Object.entries(CABLE_NAMES)) {
-    if ((items[k] || 0) > 0) summary += `🔌 ${items[k]}× ${n} @ $${PRICES.cable} = $${(items[k] * PRICES.cable).toFixed(2)}\n`;
+    if ((items[k] || 0) > 0) summary += `🔌 ${items[k]}× ${n}\n`;
   }
 
   const text =
     `🛒 <b>Custom Order</b>\n\n` +
-    (summary || 'No items selected yet.\n') +
-    `\n<b>Subtotal: $${subtotal.toFixed(2)}</b> (+ shipping)`;
+    (summary || 'No items selected yet.\n');
 
   const keyboard = {
     inline_keyboard: [
-      [{ text: `📱 PT30 Device $120${items.pt30 > 0 ? ` [×${items.pt30}]` : ''}`, callback_data: 'cu_item_pt30' }],
-      [{ text: `🚛 Volvo/Mack Cable $29${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
-      [{ text: `📦 OBD2 Box Truck $29${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
-      [{ text: `🔧 RP1226 Cable $29${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
-      [{ text: `🔌 9-Pin Cable $29${items.p9 > 0 ? ` [×${items.p9}]` : ''}`, callback_data: 'cu_item_p9' }],
+      [{ text: `📱 PT30 Device${items.pt30 > 0 ? ` [×${items.pt30}]` : ''}`, callback_data: 'cu_item_pt30' }],
+      [{ text: `9-Pin${items.p9 > 0 ? ` [×${items.p9}]` : ''}`, callback_data: 'cu_item_p9' }],
+      [{ text: `14-Pin${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
+      [{ text: `16-Pin Light Duty${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
+      [{ text: `16-Pin Heavy Duty${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
       ...(subtotal > 0 ? [[{ text: '🚚 Select Shipping →', callback_data: 'cu_shipping' }]] : []),
       [{ text: '◀️ Back', callback_data: 'order_new' }],
     ],
@@ -595,11 +594,11 @@ const cuSelectItem = async (ctx) => {
 
     const current = session.items[item] || 0;
     const ITEM_DISPLAY = {
-      pt30: 'PT30 Device ($120 each)',
-      vm:   '16-Pin Volvo/Mack Cable ($29 each)',
-      obd:  '16-Pin OBD2 Box Truck Cable ($29 each)',
-      rp:   '14-Pin RP1226 Cable ($29 each)',
-      p9:   '9-Pin Cable ($29 each)',
+      pt30: 'PT30 Device',
+      vm:   '16-Pin Heavy Duty',
+      obd:  '16-Pin Light Duty',
+      rp:   '14-Pin',
+      p9:   '9-Pin',
     };
 
     await ctx.editMessageText(
@@ -652,13 +651,13 @@ const cuShowShipping = async (ctx) => {
     const totalOvn = (subtotal + PRICES.ship_overnight).toFixed(2);
 
     await ctx.editMessageText(
-      `🚚 <b>Select Shipping</b>\n\nItems subtotal: $${subtotal.toFixed(2)}`,
+      `🚚 <b>Select Shipping</b>`,
       {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: `🚚 Standard ($30.99) — Total $${totalStd}`, callback_data: 'cu_ship_s' }],
-            [{ text: `🚀 Overnight ($79.99) — Total $${totalOvn}`, callback_data: 'cu_ship_o' }],
+            [{ text: `🚚 Standard Shipping`, callback_data: 'cu_ship_s' }],
+            [{ text: `🚀 Overnight Shipping`, callback_data: 'cu_ship_o' }],
             [{ text: '◀️ Back to Cart', callback_data: 'order_custom' }],
           ],
         },

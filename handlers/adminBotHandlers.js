@@ -9,7 +9,7 @@ const adminSessions = new Map(); // telegram_id → { action, target? }
 const USERS_PER_PAGE = 8;
 
 const CABLE_NAMES = {
-  vm: 'Volvo/Mack', obd: 'OBD2 Box', rp: 'RP1226', p9: '9-Pin',
+  vm: '16-Pin Heavy Duty', obd: '16-Pin Light Duty', rp: '14-Pin', p9: '9-Pin',
 };
 
 // ─── Keyboards ────────────────────────────────────────────────────────────────

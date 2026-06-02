@@ -37,7 +37,7 @@ async function notifyAdminText(message) {
 async function notifyHeadAdmin(order) {
   if (!_adminBot) return;
   try {
-    const CABLE = { vm: 'Volvo/Mack', obd: 'OBD2 Box', rp: 'RP1226', p9: '9-Pin' };
+    const CABLE = { vm: '16-Pin Heavy Duty', obd: '16-Pin Light Duty', rp: '14-Pin', p9: '9-Pin' };
     let items = '';
     try {
       const it = JSON.parse(order.items || '{}');
