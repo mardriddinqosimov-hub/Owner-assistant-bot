@@ -14,7 +14,7 @@ const STATUS_GROUPS = {
   D:   { label: 'Driving',  emoji: '🟢' },
   ON:  { label: 'On Duty',  emoji: '🔵' },
   SB:  { label: 'Sleeper',  emoji: '🟠' },
-  OFF: { label: 'Off Duty', emoji: '🔘' },
+  OFF: { label: 'Off Duty', emoji: '⚫' },
 };
 
 function statusGroupKey(status) {
