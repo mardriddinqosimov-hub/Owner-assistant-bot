@@ -8,6 +8,7 @@ const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
 function setAccountingBot(bot) { _accountingBot = bot; }
 function setMainBot(bot)       { _mainBot = bot; }
 function setAdminBot(bot)      { _adminBot = bot; }
+function getMainBot()          { return _mainBot; }
 
 async function notifyAdminNewOrder(fileId, fileType, caption) {
   const sender = _accountingBot || _mainBot;
@@ -73,4 +74,4 @@ async function notifyCustomer(telegramId, message, options = {}) {
   }
 }
 
-module.exports = { setAccountingBot, setMainBot, setAdminBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyCustomer };
+module.exports = { setAccountingBot, setMainBot, setAdminBot, getMainBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyCustomer };

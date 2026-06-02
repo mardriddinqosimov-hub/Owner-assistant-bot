@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const Order = require('../models/Order');
 const User  = require('../models/User');
 const logger = require('../utils/logger');
+const { getMainBot } = require('../services/notificationService');
 
 const adminSessions = new Map(); // telegram_id → { action, target? }
 
@@ -365,10 +366,13 @@ const haHandleText = async (ctx) => {
 
   await ctx.reply(`📤 Sending to ${users.length} users…`);
 
+  const mainBot = getMainBot();
+  const tg = mainBot ? mainBot.telegram : ctx.telegram;
+
   let sent = 0, failed = 0;
   for (const u of users) {
     try {
-      await ctx.telegram.sendMessage(u.telegram_id, `📢 <b>Message from Algo Group</b>\n\n${message}`, { parse_mode: 'HTML' });
+      await tg.sendMessage(u.telegram_id, `📢 <b>Message from Algo Group</b>\n\n${message}`, { parse_mode: 'HTML' });
       sent++;
     } catch {
       failed++;
