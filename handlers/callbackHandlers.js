@@ -428,7 +428,7 @@ const orderStart = async (ctx) => {
       registrationSessions.set(ctx.from.id, { step: REG_STEPS[0], returnTo: 'order_submenu' });
       return ctx.editMessageText(
         `📝 <b>One-time Profile Setup</b>\n\nBefore placing orders, we need a few details. You only do this <b>once</b> — every future order will be pre-filled automatically!\n\n` + REG_PROMPTS[REG_STEPS[0]],
-        { parse_mode: 'HTML', reply_markup: CANCEL_KB }
+        { parse_mode: 'HTML' }
       );
     }
 
@@ -810,7 +810,7 @@ const orderEdit = async (ctx) => {
     registrationSessions.set(ctx.from.id, { step: REG_STEPS[0], returnTo: 'resume_order' });
     await ctx.editMessageText(
       `✏️ <b>Update Your Details</b>\n\nChanges will be saved to your profile and used for all future orders.\n\n` + REG_PROMPTS[REG_STEPS[0]],
-      { parse_mode: 'HTML', reply_markup: CANCEL_KB }
+      { parse_mode: 'HTML' }
     );
   } catch (err) {
     logger.error('orderEdit error:', err);

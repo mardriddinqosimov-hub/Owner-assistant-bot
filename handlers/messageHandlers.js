@@ -108,7 +108,7 @@ const handleText = async (ctx) => {
 
     if (idx < REG_STEPS.length - 1) {
       regSession.step = REG_STEPS[idx + 1];
-      return ctx.reply(REG_PROMPTS[regSession.step], { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+      return ctx.reply(REG_PROMPTS[regSession.step], { parse_mode: 'HTML' });
     }
 
     // All 4 answers collected — save to DB
