@@ -40,6 +40,9 @@ bot.use(async (ctx, next) => {
       if (u?.blocked) {
         return ctx.reply('⛔ Your access has been restricted. Contact admin.');
       }
+      if (u && (!u.first_name || !u.username) && ctx.from.first_name) {
+        await u.update({ first_name: ctx.from.first_name || u.first_name, last_name: ctx.from.last_name || u.last_name, username: ctx.from.username || u.username });
+      }
     }
     await next();
   } catch (error) {

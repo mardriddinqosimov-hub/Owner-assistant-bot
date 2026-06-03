@@ -125,6 +125,22 @@ const haUsers = async (ctx, page = 0) => {
     const pages  = Math.ceil(total / USERS_PER_PAGE) || 1;
     const slice  = users.slice(page * USERS_PER_PAGE, (page + 1) * USERS_PER_PAGE);
 
+    // Backfill names for users who have none stored
+    const nameless = slice.filter(u => !u.first_name && !u.last_name && !u.username);
+    if (nameless.length > 0) {
+      const mainBot = getMainBot();
+      if (mainBot) {
+        await Promise.all(nameless.map(async u => {
+          try {
+            const chat = await mainBot.telegram.getChat(u.telegram_id);
+            const upd = { first_name: chat.first_name || null, last_name: chat.last_name || null, username: chat.username || null };
+            await u.update(upd);
+            Object.assign(u.dataValues, upd);
+          } catch {}
+        }));
+      }
+    }
+
     const buttons = slice.map(u => [{
       text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'} [${platLabel(u.platform)}]${u.blocked ? ' 🚫' : ''}`,
       callback_data: `ha_user_${u.id}`,
