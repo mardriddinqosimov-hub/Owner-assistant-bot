@@ -79,8 +79,8 @@ bot.action(/^fs_shp_(s|o)$/, callbackHandlers.fsSelectShipping);
 
 // Custom cart flow
 bot.action('order_custom', callbackHandlers.orderCustom);
-bot.action(/^cu_item_(pt30|vm|obd|rp|p9)$/, callbackHandlers.cuSelectItem);
-bot.action(/^cu_qty_(pt30|vm|obd|rp|p9)_(\d+)$/, callbackHandlers.cuSetQty);
+bot.action(/^cu_item_(pt30|vm|obd|rp|p9|stk)$/, callbackHandlers.cuSelectItem);
+bot.action(/^cu_qty_(pt30|vm|obd|rp|p9|stk)_(\d+)$/, callbackHandlers.cuSetQty);
 bot.action('cu_shipping', callbackHandlers.cuShowShipping);
 bot.action(/^cu_ship_(s|o)$/, callbackHandlers.cuSelectShipping);
 

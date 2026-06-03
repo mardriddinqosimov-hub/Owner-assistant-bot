@@ -8,66 +8,16 @@ const {
   ORDER_STEPS,
   ORDER_PROMPTS,
   CANCEL_KB,
+  registrationSessions,
+  REG_STEPS,
+  REG_PROMPTS,
+  showConfirmation,
+  buildOrderSummary,
 } = require('./callbackHandlers');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
 
-const CABLE_NAMES = {
-  vm:  '16-Pin Heavy Duty',
-  obd: '16-Pin Light Duty',
-  rp:  '14-Pin',
-  p9:  '9-Pin',
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function buildOrderSummary(s, title = '📋 <b>Order Confirmation</b>') {
-  let itemsText = '';
-
-  if (s.type === 'fullset') {
-    const cableName = CABLE_NAMES[s.cable_type] || s.cable_type || 'Cable';
-    const shippingLabel = s.shipping === 'overnight' ? 'Overnight (+$79.99)' : 'Standard (included)';
-    itemsText =
-      `🎯 ${s.sets}× Full Set\n` +
-      `  Cable: ${cableName}\n` +
-      `  Stickers: included\n\n` +
-      `🚚 Shipping: ${shippingLabel}\n`;
-  } else if (s.type === 'custom') {
-    if ((s.items.pt30 || 0) > 0) itemsText += `📱 ${s.items.pt30}× PT30 Device @ $120 = $${(s.items.pt30 * 120).toFixed(2)}\n`;
-    for (const [k, name] of Object.entries(CABLE_NAMES)) {
-      if ((s.items[k] || 0) > 0) itemsText += `🔌 ${s.items[k]}× ${name} @ $29 = $${(s.items[k] * 29).toFixed(2)}\n`;
-    }
-    const shippingLabel = s.shipping === 'overnight' ? 'Overnight ($79.99)' : 'Standard ($30.99)';
-    itemsText += `\n🚚 Shipping: ${shippingLabel}\n`;
-  }
-
-  return (
-    `${title}\n\n` +
-    `👤 Owner: ${s.owner_name}\n` +
-    `🏢 Company: ${s.company_name}\n` +
-    `📧 Email: ${s.email}\n` +
-    `📱 Phone: ${s.phone}\n` +
-    `📍 Delivery: ${s.location}\n\n` +
-    itemsText +
-    `<b>💰 Total: $${parseFloat(s.total).toFixed(2)}</b>`
-  );
-}
-
-async function showConfirmation(ctx, session) {
-  await ctx.reply(
-    buildOrderSummary(session) + '\n\nPlease review and confirm your order:',
-    {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '✅ Confirm Order', callback_data: 'order_confirm' }],
-          [{ text: '✏️ Edit Info', callback_data: 'order_edit' }],
-          [{ text: '❌ Cancel', callback_data: 'order_cancel' }],
-        ],
-      },
-    }
-  );
-}
 
 async function completeOrder(ctx, session, fileId, type) {
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
@@ -148,6 +98,59 @@ const handleText = async (ctx) => {
   if (ctx.message.text.startsWith('/')) return;
 
   const userId = ctx.from.id;
+
+  // ── Registration flow ──────────────────────────────────────────────────────
+  const regSession = registrationSessions.get(userId);
+  if (regSession && REG_STEPS.includes(regSession.step)) {
+    const answer = ctx.message.text.trim();
+    regSession[regSession.step] = answer;
+    const idx = REG_STEPS.indexOf(regSession.step);
+
+    if (idx < REG_STEPS.length - 1) {
+      regSession.step = REG_STEPS[idx + 1];
+      return ctx.reply(REG_PROMPTS[regSession.step], { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+    }
+
+    // All 4 answers collected — save to DB
+    const user = await User.findOne({ where: { telegram_id: userId } });
+    if (user) {
+      await user.update({
+        owner_name:       regSession.reg_owner_name,
+        contact_email:    regSession.reg_email,
+        phone:            regSession.reg_phone,
+        delivery_address: regSession.reg_address,
+      });
+    }
+    registrationSessions.delete(userId);
+
+    if (regSession.returnTo === 'resume_order') {
+      // Profile updated — re-populate the active order session and show confirmation
+      const orderSession = orderSessions.get(userId);
+      if (orderSession) {
+        orderSession.owner_name = regSession.reg_owner_name;
+        orderSession.email      = regSession.reg_email;
+        orderSession.phone      = regSession.reg_phone;
+        orderSession.location   = regSession.reg_address;
+        orderSession.step       = 'confirmation';
+        return showConfirmation(ctx, orderSession);
+      }
+    }
+
+    // returnTo: 'order_submenu' — profile setup done, go to ordering
+    return ctx.reply(
+      `✅ <b>Profile saved!</b>\n\nYou're all set. Your details will be pre-filled on every future order.\n\nTap below to start ordering:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📦 Order Devices', callback_data: 'order_devices_start' }],
+            [{ text: '🏠 Main Menu',     callback_data: 'main_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
   const session = orderSessions.get(userId);
 
   if (session && ORDER_STEPS.includes(session.step)) {

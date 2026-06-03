@@ -305,6 +305,7 @@ const PRICES = {
   fullset_overnight: 79.99,
   pt30:             120.00,
   cable:             29.00,
+  sticker:            9.99,
   ship_standard:     30.99,
   ship_overnight:    79.99,
 };
@@ -328,13 +329,24 @@ const ORDER_QA_PROMPTS = {
   location:   '📍 <b>(4/4) Delivery Address</b>\n\nPlease enter your full delivery address:',
 };
 
+// ─── One-time registration ────────────────────────────────────────────────────
+
+const REG_STEPS = ['reg_owner_name', 'reg_email', 'reg_phone', 'reg_address'];
+const REG_PROMPTS = {
+  reg_owner_name: '👤 <b>(1/4) Your Full Name</b>\n\nEnter your full name:',
+  reg_email:      '📧 <b>(2/4) Email Address</b>\n\nEnter your email address:',
+  reg_phone:      '📱 <b>(3/4) Phone Number</b>\n\nEnter your phone number:',
+  reg_address:    '📍 <b>(4/4) Delivery Address</b>\n\nEnter your default delivery address (used for all orders):',
+};
+const registrationSessions = new Map();
+
 function computeFullSetTotal(sets, shipping) {
   return parseFloat((sets * PRICES.fullset_base + (shipping === 'overnight' ? PRICES.fullset_overnight : 0)).toFixed(2));
 }
 
 function computeCustomTotal(items, shipping) {
   const cables = (items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0);
-  const itemCost = (items.pt30 || 0) * PRICES.pt30 + cables * PRICES.cable;
+  const itemCost = (items.pt30 || 0) * PRICES.pt30 + cables * PRICES.cable + (items.stk || 0) * PRICES.sticker;
   const shipCost = shipping === 'overnight' ? PRICES.ship_overnight : PRICES.ship_standard;
   return parseFloat((itemCost + shipCost).toFixed(2));
 }
@@ -348,10 +360,56 @@ function orderListLabel(o) {
       if (items.pt30 > 0) parts.push(`${items.pt30}× PT30`);
       const cables = ['vm', 'obd', 'rp', 'p9'].reduce((s, k) => s + (items[k] || 0), 0);
       if (cables > 0) parts.push(`${cables}× Cable`);
+      if ((items.stk || 0) > 0) parts.push(`${items.stk}× Stickers`);
       return parts.join(' + ');
     }
   } catch {}
   return `${o.qty}× PT30`;
+}
+
+// ─── Order summary / confirmation ─────────────────────────────────────────────
+
+function buildOrderSummary(s, title = '📋 <b>Order Confirmation</b>') {
+  let itemsText = '';
+  if (s.type === 'fullset') {
+    const cableName = CABLE_NAMES[s.cable_type] || s.cable_type || 'Cable';
+    const shippingLabel = s.shipping === 'overnight' ? 'Overnight (+$79.99)' : 'Standard (included)';
+    itemsText = `🎯 ${s.sets}× Full Set\n  Cable: ${cableName}\n  Stickers: included\n\n🚚 Shipping: ${shippingLabel}\n`;
+  } else if (s.type === 'custom') {
+    if ((s.items.pt30 || 0) > 0) itemsText += `📱 ${s.items.pt30}× PT30 Device @ $120 = $${(s.items.pt30 * 120).toFixed(2)}\n`;
+    for (const [k, name] of Object.entries(CABLE_NAMES)) {
+      if ((s.items[k] || 0) > 0) itemsText += `🔌 ${s.items[k]}× ${name} @ $29 = $${(s.items[k] * 29).toFixed(2)}\n`;
+    }
+    if ((s.items.stk || 0) > 0) itemsText += `🏷 ${s.items.stk}× Stickers @ $9.99 = $${(s.items.stk * 9.99).toFixed(2)}\n`;
+    const shippingLabel = s.shipping === 'overnight' ? 'Overnight ($79.99)' : 'Standard ($30.99)';
+    itemsText += `\n🚚 Shipping: ${shippingLabel}\n`;
+  }
+  return (
+    `${title}\n\n` +
+    `👤 Owner: ${s.owner_name}\n` +
+    `🏢 Company: ${s.company_name}\n` +
+    `📧 Email: ${s.email}\n` +
+    `📱 Phone: ${s.phone}\n` +
+    `📍 Delivery: ${s.location}\n\n` +
+    itemsText +
+    `<b>💰 Total: $${parseFloat(s.total).toFixed(2)}</b>`
+  );
+}
+
+async function showConfirmation(ctx, session) {
+  await ctx.reply(
+    buildOrderSummary(session) + '\n\nPlease review and confirm your order:',
+    {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Confirm Order', callback_data: 'order_confirm' }],
+          [{ text: '✏️ Edit Info',     callback_data: 'order_edit' }],
+          [{ text: '❌ Cancel',        callback_data: 'order_cancel' }],
+        ],
+      },
+    }
+  );
 }
 
 // ─── Shared order session state ───────────────────────────────────────────────
@@ -364,8 +422,17 @@ const orderStart = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    const activeCount = user ? await Order.count({ where: { user_id: user.id, status: 'active' } }) : 0;
 
+    // Trigger one-time registration if profile is incomplete
+    if (!user?.owner_name || !user?.contact_email || !user?.phone || !user?.delivery_address) {
+      registrationSessions.set(ctx.from.id, { step: REG_STEPS[0], returnTo: 'order_submenu' });
+      return ctx.editMessageText(
+        `📝 <b>One-time Profile Setup</b>\n\nBefore placing orders, we need a few details. You only do this <b>once</b> — every future order will be pre-filled automatically!\n\n` + REG_PROMPTS[REG_STEPS[0]],
+        { parse_mode: 'HTML', reply_markup: CANCEL_KB }
+      );
+    }
+
+    const activeCount = await Order.count({ where: { user_id: user.id, status: 'active' } });
     await ctx.editMessageText(`📦 <b>Device Orders</b>\n\nWhat would you like to do?`, {
       parse_mode: 'HTML',
       reply_markup: {
@@ -519,12 +586,17 @@ const fsSelectShipping = async (ctx) => {
 
     session.shipping = shipping;
     session.total = computeFullSetTotal(session.sets, shipping);
-    session.step = 'owner_name';
 
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    session.company_name = user?.company_name || '';
+    session.company_name    = user?.company_name    || '';
+    session.owner_name      = user?.owner_name      || '';
+    session.email           = user?.contact_email   || '';
+    session.phone           = user?.phone           || '';
+    session.location        = user?.delivery_address || '';
+    session.step = 'confirmation';
 
-    await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+    await ctx.answerCbQuery();
+    await showConfirmation(ctx, session);
   } catch (err) {
     logger.error('fsSelectShipping error:', err);
     await ctx.reply('❌ Error.');
@@ -536,13 +608,15 @@ const fsSelectShipping = async (ctx) => {
 async function renderCustomCart(ctx, session) {
   const items = session.items;
   const subtotal = (items.pt30 || 0) * PRICES.pt30 +
-    ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable;
+    ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable +
+    (items.stk || 0) * PRICES.sticker;
 
   let summary = '';
   if (items.pt30 > 0) summary += `📱 ${items.pt30}× PT30 Device\n`;
   for (const [k, n] of Object.entries(CABLE_NAMES)) {
     if ((items[k] || 0) > 0) summary += `🔌 ${items[k]}× ${n}\n`;
   }
+  if ((items.stk || 0) > 0) summary += `🏷 ${items.stk}× Stickers\n`;
 
   const text =
     `🛒 <b>Custom Order</b>\n\n` +
@@ -555,6 +629,7 @@ async function renderCustomCart(ctx, session) {
       [{ text: `⚡ 14-Pin${items.rp > 0 ? ` [×${items.rp}]` : ''}`, callback_data: 'cu_item_rp' }],
       [{ text: `🚐 16-Pin Light Duty${items.obd > 0 ? ` [×${items.obd}]` : ''}`, callback_data: 'cu_item_obd' }],
       [{ text: `🚛 16-Pin Heavy Duty${items.vm > 0 ? ` [×${items.vm}]` : ''}`, callback_data: 'cu_item_vm' }],
+      [{ text: `🏷 Stickers${(items.stk || 0) > 0 ? ` [×${items.stk}]` : ''}`, callback_data: 'cu_item_stk' }],
       ...(subtotal > 0 ? [[{ text: '🚚 Select Shipping →', callback_data: 'cu_shipping' }]] : []),
       [{ text: '◀️ Back', callback_data: 'order_new' }],
     ],
@@ -574,7 +649,7 @@ const orderCustom = async (ctx) => {
     let session = orderSessions.get(userId);
 
     if (!session || session.type !== 'custom' || session.step !== 'cart') {
-      session = { type: 'custom', step: 'cart', items: { pt30: 0, vm: 0, obd: 0, rp: 0, p9: 0 } };
+      session = { type: 'custom', step: 'cart', items: { pt30: 0, vm: 0, obd: 0, rp: 0, p9: 0, stk: 0 } };
       orderSessions.set(userId, session);
     }
 
@@ -599,6 +674,7 @@ const cuSelectItem = async (ctx) => {
       obd:  '🚐 16-Pin Light Duty',
       rp:   '⚡ 14-Pin',
       p9:   '🔌 9-Pin',
+      stk:  '🏷 Stickers',
     };
 
     await ctx.editMessageText(
@@ -646,7 +722,8 @@ const cuShowShipping = async (ctx) => {
 
     const items = session.items;
     const subtotal = (items.pt30 || 0) * PRICES.pt30 +
-      ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable;
+      ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable +
+      (items.stk || 0) * PRICES.sticker;
     const totalStd = (subtotal + PRICES.ship_standard).toFixed(2);
     const totalOvn = (subtotal + PRICES.ship_overnight).toFixed(2);
 
@@ -679,12 +756,17 @@ const cuSelectShipping = async (ctx) => {
 
     session.shipping = shipping;
     session.total = computeCustomTotal(session.items, shipping);
-    session.step = 'owner_name';
 
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    session.company_name = user?.company_name || '';
+    session.company_name    = user?.company_name    || '';
+    session.owner_name      = user?.owner_name      || '';
+    session.email           = user?.contact_email   || '';
+    session.phone           = user?.phone           || '';
+    session.location        = user?.delivery_address || '';
+    session.step = 'confirmation';
 
-    await ctx.editMessageText(ORDER_QA_PROMPTS.owner_name, { parse_mode: 'HTML', reply_markup: CANCEL_KB });
+    await ctx.answerCbQuery();
+    await showConfirmation(ctx, session);
   } catch (err) {
     logger.error('cuSelectShipping error:', err);
     await ctx.reply('❌ Error.');
@@ -725,14 +807,9 @@ const orderEdit = async (ctx) => {
     const session = orderSessions.get(ctx.from.id);
     if (!session) return ctx.reply('Session expired. Please /start again.');
 
-    session.step = 'owner_name';
-    ORDER_QA_STEPS.forEach(k => delete session[k]);
-
-    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    session.company_name = user?.company_name || '';
-
+    registrationSessions.set(ctx.from.id, { step: REG_STEPS[0], returnTo: 'resume_order' });
     await ctx.editMessageText(
-      `✏️ Let's re-enter your details.\n\n` + ORDER_QA_PROMPTS.owner_name,
+      `✏️ <b>Update Your Details</b>\n\nChanges will be saved to your profile and used for all future orders.\n\n` + REG_PROMPTS[REG_STEPS[0]],
       { parse_mode: 'HTML', reply_markup: CANCEL_KB }
     );
   } catch (err) {
@@ -745,6 +822,7 @@ const orderCancel = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     orderSessions.delete(ctx.from.id);
+    registrationSessions.delete(ctx.from.id);
     await ctx.editMessageText(
       `❌ <b>Order Cancelled</b>`,
       {
@@ -1040,6 +1118,7 @@ const selectPlatform = async (ctx) => {
 const mainMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
+    registrationSessions.delete(ctx.from.id);
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     const hasKey = user && !!user.company_api_key;
     const companyLine = hasKey
@@ -1120,4 +1199,6 @@ module.exports = {
   ORDER_STEPS: ORDER_QA_STEPS,
   ORDER_PROMPTS: ORDER_QA_PROMPTS,
   CANCEL_KB,
+  registrationSessions, REG_STEPS, REG_PROMPTS,
+  buildOrderSummary, showConfirmation,
 };

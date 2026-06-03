@@ -126,6 +126,21 @@ const start = async (ctx) => {
         },
       }
     );
+
+    // Proactively prompt registration if profile is incomplete
+    if (!user.owner_name || !user.contact_email || !user.phone || !user.delivery_address) {
+      const { registrationSessions, REG_STEPS, REG_PROMPTS } = require('./callbackHandlers');
+      registrationSessions.set(telegramId, { step: REG_STEPS[0], returnTo: 'order_submenu' });
+      await ctx.reply(
+        `📝 <b>Complete Your Profile</b>\n\nTo enable quick ordering, please save your details once. We'll pre-fill every future order automatically!\n\n` + REG_PROMPTS[REG_STEPS[0]],
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[{ text: '⏭ Skip for now', callback_data: 'main_menu' }]],
+          },
+        }
+      );
+    }
   } catch (error) {
     logger.error('Start error:', error);
     await ctx.reply('❌ Error. Please try again.');
