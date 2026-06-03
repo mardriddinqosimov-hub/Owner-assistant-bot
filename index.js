@@ -177,7 +177,6 @@ function setupAdminBot() {
 
   adminBot.action('ha_main',      adminBotHandlers.haMain);
   adminBot.action('ha_stats',     adminBotHandlers.haStats);
-  adminBot.action('ha_orders',    adminBotHandlers.haOrders);
   adminBot.action('ha_broadcast', adminBotHandlers.haBroadcast);
 
   adminBot.action(/^ha_users_(\d+)$/,         (ctx) => adminBotHandlers.haUsers(ctx, parseInt(ctx.match[1])));
@@ -185,7 +184,6 @@ function setupAdminBot() {
   adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
   adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
   adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
-  adminBot.action(/^ha_order_(\d+)$/,          adminBotHandlers.haOrderDetail);
   adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
 
   adminBot.on('text', adminBotHandlers.haHandleText);

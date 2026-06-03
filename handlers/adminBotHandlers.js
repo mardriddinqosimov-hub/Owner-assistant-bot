@@ -16,8 +16,8 @@ const CABLE_NAMES = {
 
 const MAIN_KB = {
   inline_keyboard: [
-    [{ text: '👥 Users',    callback_data: 'ha_users_0' }, { text: '📊 Stats',  callback_data: 'ha_stats' }],
-    [{ text: '📋 Orders',   callback_data: 'ha_orders'  }, { text: '📢 Broadcast', callback_data: 'ha_broadcast' }],
+    [{ text: '👥 Users',       callback_data: 'ha_users_0' }, { text: '📊 Stats',     callback_data: 'ha_stats' }],
+    [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
   ],
 };
 
@@ -89,39 +89,25 @@ const haStats = async (ctx) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [
-      totalUsers, owners, safety, withCompany,
+      totalUsers, owners, safety, withCompany, blocked,
       leader, factor,
-      activeOrders, deliveredOrders,
-      todayOrders, weekOrders, monthOrders,
-      allOrders,
     ] = await Promise.all([
       User.count(),
       User.count({ where: { role: 'owner' } }),
       User.count({ where: { role: 'safety' } }),
       User.count({ where: { company_name: { [Op.not]: null } } }),
+      User.count({ where: { blocked: true } }),
       User.count({ where: { platform: 'leader' } }),
       User.count({ where: { platform: 'factor' } }),
-      Order.count({ where: { status: 'active' } }),
-      Order.count({ where: { status: 'delivered' } }),
-      Order.count({ where: { created_at: { [Op.gte]: startOfDay } } }),
-      Order.count({ where: { created_at: { [Op.gte]: startOfWeek } } }),
-      Order.count({ where: { created_at: { [Op.gte]: startOfMonth } } }),
-      Order.findAll({ attributes: ['total'], where: { status: 'delivered' } }),
     ]);
-
-    const totalRev = allOrders.reduce((s, o) => s + parseFloat(o.total || 0), 0);
 
     await ctx.editMessageText(
       `📊 <b>System Stats</b>\n\n` +
       `<b>👥 Users</b>\n` +
       `• Total: <b>${totalUsers}</b>  (${withCompany} with company)\n` +
       `• Owners: <b>${owners}</b>  |  Safety: <b>${safety}</b>  |  Other: <b>${totalUsers - owners - safety}</b>\n` +
-      `• Leader ELD: <b>${leader}</b>  |  Factor ELD: <b>${factor}</b>\n\n` +
-      `<b>📦 Orders</b>\n` +
-      `• Active: <b>${activeOrders}</b>  |  Delivered: <b>${deliveredOrders}</b>\n` +
-      `• Today: <b>${todayOrders}</b>  |  This Week: <b>${weekOrders}</b>  |  This Month: <b>${monthOrders}</b>\n\n` +
-      `<b>💰 Revenue (delivered)</b>\n` +
-      `• Total: <b>$${totalRev.toFixed(2)}</b>`,
+      `• Leader ELD: <b>${leader}</b>  |  Factor ELD: <b>${factor}</b>\n` +
+      `• Blocked: <b>${blocked}</b>`,
       { parse_mode: 'HTML', reply_markup: BACK_KB }
     );
   } catch (err) {
