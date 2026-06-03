@@ -187,6 +187,8 @@ function setupAdminBot() {
   adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
   adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
   adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
+  adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
+  adminBot.action(/^ha_delete_yes_(\d+)$/,     adminBotHandlers.haDeleteUser);
   adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
 
   adminBot.on('text', adminBotHandlers.haHandleText);

@@ -199,6 +199,7 @@ const haUserDetail = async (ctx) => {
     } else {
       rows.push([{ text: '🚫 Block User', callback_data: `ha_block_${userId}` }]);
     }
+    rows.push([{ text: '🗑 Delete User', callback_data: `ha_delete_${userId}` }]);
     rows.push([{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]);
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } });
@@ -246,6 +247,49 @@ const haUnblock = async (ctx) => {
     await haUserDetail(ctx);
   } catch (err) {
     logger.error('haUnblock error:', err);
+  }
+};
+
+// ─── Delete User ─────────────────────────────────────────────────────────────
+
+const haDeleteConfirm = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const u = await User.findByPk(userId);
+    if (!u) return ctx.editMessageText('❌ User not found.', { reply_markup: BACK_KB });
+    await ctx.editMessageText(
+      `🗑 <b>Delete User</b>\n\n` +
+      `Are you sure you want to delete <b>${userName(u)}</b>?\n\n` +
+      `Their account will be removed from the bot. They won't be blocked — if they send /start again they'll be re-registered as a new user.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Yes, Delete', callback_data: `ha_delete_yes_${userId}` }],
+            [{ text: '❌ Cancel', callback_data: `ha_user_${userId}` }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('haDeleteConfirm error:', err);
+  }
+};
+
+const haDeleteUser = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const u = await User.findByPk(userId);
+    const name = u ? userName(u) : `User #${userId}`;
+    if (u) await u.destroy();
+    await ctx.editMessageText(
+      `✅ <b>${name}</b> has been removed from the bot.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]] } }
+    );
+  } catch (err) {
+    logger.error('haDeleteUser error:', err);
   }
 };
 
@@ -411,7 +455,7 @@ async function notifyNewOrder(bot, adminId, order) {
 module.exports = {
   haStart, haMain,
   haStats,
-  haUsers, haUserDetail, haSetRole, haBlock, haUnblock,
+  haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haHandleText,
