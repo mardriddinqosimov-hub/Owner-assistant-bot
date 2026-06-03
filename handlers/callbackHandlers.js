@@ -1142,6 +1142,7 @@ const referralMenu = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
+            [{ text: '📤 Send to Friend', url: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Join Algo Group ELD — best fleet management service! Use my referral link to get started 🚛')}` }],
             [{ text: '📋 Referral History', callback_data: 'referral_history_0' }],
             [{ text: '◀️ Back',             callback_data: 'main_menu' }],
           ],
