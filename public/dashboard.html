@@ -574,24 +574,10 @@
       <span>Reports</span>
     </div>
 
-    <div class="nav-section">Catalog</div>
-    <div class="nav-item">
-      <span class="nav-icon">📦</span>
-      <span>Inventory</span>
-    </div>
-    <div class="nav-item">
-      <span class="nav-icon">🚚</span>
-      <span>Carriers</span>
-    </div>
-
     <div class="nav-section">Admin</div>
     <div class="nav-item" id="nav-referrals" onclick="showPage('referrals')">
       <span class="nav-icon">💰</span>
       <span>Referrals</span>
-    </div>
-    <div class="nav-item" id="nav-users" onclick="showPage('users')">
-      <span class="nav-icon">👥</span>
-      <span>Users</span>
     </div>
   </nav>
 </aside>
@@ -916,7 +902,6 @@ function showPage(name) {
     'order-history':    'Order History',
     'reports':          'Reports',
     'referrals':        'Referrals',
-    'users':            'Users',
   };
   document.getElementById('topbar-title').textContent = titles[name] || '';
 
@@ -942,10 +927,6 @@ function showPage(name) {
     document.getElementById('nav-referrals').classList.add('active');
     searchWrap.style.display = 'none';
     loadReferrals();
-  } else if (name === 'users') {
-    document.getElementById('nav-users').classList.add('active');
-    searchWrap.style.display = 'none';
-    loadUsers();
   }
 }
 

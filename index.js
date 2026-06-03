@@ -161,6 +161,8 @@ function setupAccountingBot() {
   accountingBot.action('acct_history', accountingHandlers.acctHistory);
   accountingBot.action(/^acct_history_order_(\d+)$/, accountingHandlers.acctHistoryOrder);
 
+  accountingBot.action('acct_referrals',              accountingHandlers.acctReferrals);
+  accountingBot.action(/^acct_ref_detail_(\d+)$/,     accountingHandlers.acctReferralDetail);
   accountingBot.action(/^acct_ref_(card|credit)_(\d+)$/, accountingHandlers.acctRefPayout);
   accountingBot.on('text', accountingHandlers.acctHandleText);
 }

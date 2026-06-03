@@ -18,9 +18,10 @@ const CABLE_NAMES = {
 
 const MAIN_KB = {
   inline_keyboard: [
-    [{ text: '📋 Active Orders', callback_data: 'acct_active_orders' }],
+    [{ text: '📋 Active Orders',    callback_data: 'acct_active_orders' }],
     [{ text: '⚙️ Order Management', callback_data: 'acct_management' }],
-    [{ text: '📜 Order History', callback_data: 'acct_history' }],
+    [{ text: '📜 Order History',    callback_data: 'acct_history' }],
+    [{ text: '💰 Referrals',        callback_data: 'acct_referrals' }],
   ],
 };
 
@@ -458,6 +459,78 @@ const acctStatus = async (ctx) => {
   await ctx.reply(text, { parse_mode: 'HTML', reply_markup: MAIN_KB });
 };
 
+// ─── Referral list ────────────────────────────────────────────────────────────
+
+const acctReferrals = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const refs = await Referral.findAll({ order: [['created_at', 'DESC']], limit: 50 });
+
+    const pending   = refs.filter(r => r.status === 'pending').length;
+    const confirmed = refs.filter(r => r.status === 'confirmed').length;
+    const paid      = refs.filter(r => r.status === 'paid').length;
+
+    if (!refs.length) {
+      return ctx.editMessageText(
+        `💰 <b>Referrals</b>\n\nNo referrals yet.`,
+        { parse_mode: 'HTML', reply_markup: BACK_MAIN_KB }
+      );
+    }
+
+    const STATUS_ICON = { pending: '⏳', confirmed: '✅', rejected: '❌', paid: '💰' };
+    const buttons = refs.slice(0, 20).map(r => [{
+      text: `${STATUS_ICON[r.status] || '•'} #${r.id} ${r.referred_company || r.referred_name || '?'}`,
+      callback_data: `acct_ref_detail_${r.id}`,
+    }]);
+    buttons.push([{ text: '◀️ Back', callback_data: 'acct_main_menu' }]);
+
+    await ctx.editMessageText(
+      `💰 <b>Referrals</b>\n\n⏳ Pending: ${pending}  ✅ Confirmed: ${confirmed}  💰 Paid: ${paid}`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (err) {
+    logger.error('acctReferrals error:', err);
+  }
+};
+
+const acctReferralDetail = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const refId = parseInt(ctx.match[1], 10);
+    const ref   = await Referral.findByPk(refId);
+    if (!ref) return ctx.editMessageText('❌ Not found.', { reply_markup: BACK_MAIN_KB });
+
+    const owner = await User.findByPk(ref.owner_id);
+    const ownerName = owner
+      ? ([owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.username || owner.owner_name || `ID ${owner.telegram_id}`)
+      : `Owner #${ref.owner_id}`;
+
+    const STATUS_LABEL = { pending: '⏳ Pending', confirmed: '✅ Confirmed', rejected: '❌ Rejected', paid: '💰 Paid' };
+    const text =
+      `💰 <b>Referral #${ref.id}</b>\n\n` +
+      `👤 ${ref.referred_name || '—'}\n` +
+      `🏢 ${ref.referred_company || '—'}\n` +
+      `🚛 Trucks: ${ref.trucks_count || '—'}\n` +
+      `📱 ${ref.referred_phone || '—'}\n\n` +
+      `🔗 Referred by: <b>${ownerName}</b>\n` +
+      `💵 Reward: $${parseFloat(ref.reward).toFixed(2)}\n` +
+      `Status: ${STATUS_LABEL[ref.status] || ref.status}`;
+
+    const rows = [];
+    if (ref.status === 'confirmed') {
+      rows.push([
+        { text: '💳 Pay to Card',     callback_data: `acct_ref_card_${refId}` },
+        { text: '📦 Apply to Orders', callback_data: `acct_ref_credit_${refId}` },
+      ]);
+    }
+    rows.push([{ text: '◀️ Back', callback_data: 'acct_referrals' }]);
+
+    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } });
+  } catch (err) {
+    logger.error('acctReferralDetail error:', err);
+  }
+};
+
 // ─── Referral payout ──────────────────────────────────────────────────────────
 
 const acctRefPayout = async (ctx) => {
@@ -509,5 +582,5 @@ module.exports = {
   acctHistory, acctHistoryOrder,
   acctHandleText,
   acctTrack, acctDeliver, acctClose, acctOpen, acctStatus,
-  acctRefPayout,
+  acctReferrals, acctReferralDetail, acctRefPayout,
 };
