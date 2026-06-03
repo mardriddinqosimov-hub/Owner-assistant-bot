@@ -10,8 +10,9 @@ const User = require('./models/User');
 const commandHandlers = require('./handlers/commandHandlers');
 const callbackHandlers = require('./handlers/callbackHandlers');
 const messageHandlers = require('./handlers/messageHandlers');
-const accountingHandlers = require('./handlers/accountingHandlers');
-const adminBotHandlers  = require('./handlers/adminBotHandlers');
+const accountingHandlers    = require('./handlers/accountingHandlers');
+const adminBotHandlers      = require('./handlers/adminBotHandlers');
+const managementBotHandlers = require('./handlers/managementBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
 const notifService = require('./services/notificationService');
 const dashboardModule = require('./routes/dashboard');
@@ -92,6 +93,10 @@ bot.action('order_active', callbackHandlers.orderActive);
 bot.action(/^order_history_(\d+)$/, callbackHandlers.orderHistory);
 bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
 
+// ─── Referral ─────────────────────────────────────────────────────────────────
+bot.action('referral_menu',                  callbackHandlers.referralMenu);
+bot.action(/^referral_history_(\d+)$/,       callbackHandlers.referralHistory);
+
 // ─── Platform selection ───────────────────────────────────────────────────────
 bot.action(/^platform_select_(leader|factor)$/, callbackHandlers.selectPlatform);
 
@@ -156,6 +161,7 @@ function setupAccountingBot() {
   accountingBot.action('acct_history', accountingHandlers.acctHistory);
   accountingBot.action(/^acct_history_order_(\d+)$/, accountingHandlers.acctHistoryOrder);
 
+  accountingBot.action(/^acct_ref_(card|credit)_(\d+)$/, accountingHandlers.acctRefPayout);
   accountingBot.on('text', accountingHandlers.acctHandleText);
 }
 
@@ -196,6 +202,30 @@ function setupAdminBot() {
   adminBot.on('text', adminBotHandlers.haHandleText);
 }
 
+// ─── Management bot ──────────────────────────────────────────────────────────
+let managementBot = null;
+
+function setupManagementBot() {
+  if (!process.env.MANAGEMENT_BOT_TOKEN) {
+    logger.warn('MANAGEMENT_BOT_TOKEN not set — management bot disabled');
+    return;
+  }
+
+  managementBot = new Telegraf(process.env.MANAGEMENT_BOT_TOKEN);
+
+  managementBot.start(managementBotHandlers.mgmtStart);
+
+  managementBot.action('mg_main',              managementBotHandlers.mgmtMain);
+  managementBot.action('mg_pending',           managementBotHandlers.mgmtPending);
+  managementBot.action(/^mg_all_(\d+)$/,       managementBotHandlers.mgmtAllReferrals);
+  managementBot.action(/^mg_ref_(\d+)$/,       managementBotHandlers.mgmtRefDetail);
+  managementBot.action(/^mg_confirm_(\d+)$/,   managementBotHandlers.mgmtConfirm);
+  managementBot.action(/^mg_reject_(\d+)$/,    managementBotHandlers.mgmtReject);
+  managementBot.action('mg_balances',          managementBotHandlers.mgmtBalances);
+
+  managementBot.on('text', managementBotHandlers.mgmtHandleText);
+}
+
 // ─── DOT inspection polling (every 10 min) ────────────────────────────────────
 function startInspectionPolling() {
   const INTERVAL = 10 * 60 * 1000;
@@ -209,11 +239,13 @@ async function startBot() {
     await initDatabase();
     setupAccountingBot();
     setupAdminBot();
+    setupManagementBot();
 
     // Wire notification service
     notifService.setMainBot(bot);
-    if (accountingBot) notifService.setAccountingBot(accountingBot);
-    if (adminBot)      notifService.setAdminBot(adminBot);
+    if (accountingBot)  notifService.setAccountingBot(accountingBot);
+    if (adminBot)       notifService.setAdminBot(adminBot);
+    if (managementBot)  notifService.setManagementBot(managementBot);
 
     // ─── Express (always runs — serves dashboard + health + optional webhook) ──
     const app = express();
@@ -254,6 +286,13 @@ async function startBot() {
       logger.info('✅ Head admin bot polling started');
     }
 
+    // Management bot
+    if (managementBot) {
+      await managementBot.telegram.deleteWebhook();
+      managementBot.launch();
+      logger.info('✅ Management bot polling started');
+    }
+
     startInspectionPolling();
     logger.info('🤖 BOT ONLINE - READY FOR COMMANDS');
   } catch (error) {
@@ -264,14 +303,16 @@ async function startBot() {
 
 process.once('SIGINT', () => {
   bot.stop('SIGINT');
-  if (accountingBot) accountingBot.stop('SIGINT');
-  if (adminBot) adminBot.stop('SIGINT');
+  if (accountingBot)  accountingBot.stop('SIGINT');
+  if (adminBot)       adminBot.stop('SIGINT');
+  if (managementBot)  managementBot.stop('SIGINT');
   process.exit(0);
 });
 process.once('SIGTERM', () => {
   bot.stop('SIGTERM');
-  if (accountingBot) accountingBot.stop('SIGTERM');
-  if (adminBot) adminBot.stop('SIGTERM');
+  if (accountingBot)  accountingBot.stop('SIGTERM');
+  if (adminBot)       adminBot.stop('SIGTERM');
+  if (managementBot)  managementBot.stop('SIGTERM');
   process.exit(0);
 });
 

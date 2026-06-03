@@ -117,11 +117,12 @@ const start = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '👥 View Drivers', callback_data: 'drivers_list' }],
-            [{ text: '📦 Order Devices', callback_data: 'order_devices_start' }],
+            [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
+            [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
             [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
-            [{ text: '🔄 Change Team', callback_data: 'change_team' }],
-            [{ text: '❓ Help', callback_data: 'help_menu' }],
+            [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+            [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
+            [{ text: '❓ Help',            callback_data: 'help_menu' }],
           ],
         },
       }

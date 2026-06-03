@@ -1,14 +1,18 @@
 const logger = require('../utils/logger');
 
-let _accountingBot = null;
-let _mainBot = null;
-let _adminBot = null;
+let _accountingBot  = null;
+let _mainBot        = null;
+let _adminBot       = null;
+let _managementBot  = null;
 const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
 
-function setAccountingBot(bot) { _accountingBot = bot; }
-function setMainBot(bot)       { _mainBot = bot; }
-function setAdminBot(bot)      { _adminBot = bot; }
-function getMainBot()          { return _mainBot; }
+function setAccountingBot(bot)  { _accountingBot = bot; }
+function setMainBot(bot)        { _mainBot = bot; }
+function setAdminBot(bot)       { _adminBot = bot; }
+function setManagementBot(bot)  { _managementBot = bot; }
+function getMainBot()           { return _mainBot; }
+function getAccountingBot()     { return _accountingBot; }
+function getManagementBot()     { return _managementBot; }
 
 async function notifyAdminNewOrder(fileId, fileType, caption) {
   const sender = _accountingBot || _mainBot;
@@ -74,4 +78,4 @@ async function notifyCustomer(telegramId, message, options = {}) {
   }
 }
 
-module.exports = { setAccountingBot, setMainBot, setAdminBot, getMainBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyCustomer };
+module.exports = { setAccountingBot, setMainBot, setAdminBot, setManagementBot, getMainBot, getAccountingBot, getManagementBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyCustomer };

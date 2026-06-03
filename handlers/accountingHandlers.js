@@ -1,8 +1,9 @@
 const { Op } = require('sequelize');
-const Order = require('../models/Order');
-const User = require('../models/User');
+const Order    = require('../models/Order');
+const User     = require('../models/User');
+const Referral = require('../models/Referral');
 const { getSetting, setSetting } = require('../models/Setting');
-const { notifyCustomer } = require('../services/notificationService');
+const { notifyCustomer, getMainBot } = require('../services/notificationService');
 const logger = require('../utils/logger');
 
 // Pending sessions: telegram_id → { action, orderId? }
@@ -457,6 +458,49 @@ const acctStatus = async (ctx) => {
   await ctx.reply(text, { parse_mode: 'HTML', reply_markup: MAIN_KB });
 };
 
+// ─── Referral payout ──────────────────────────────────────────────────────────
+
+const acctRefPayout = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const method = ctx.match[1]; // 'card' or 'credit'
+    const refId  = parseInt(ctx.match[2], 10);
+
+    const ref   = await Referral.findByPk(refId);
+    if (!ref || ref.status === 'paid') return ctx.answerCbQuery('Already processed.');
+
+    const owner = await User.findByPk(ref.owner_id);
+    const label = method === 'card' ? 'Card Payment' : 'Order Credit';
+
+    await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
+
+    // Deduct from owner balance
+    if (owner) {
+      const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
+      await owner.update({ referral_balance: newBal.toFixed(2) });
+
+      // Notify owner via main bot
+      const mainBot = getMainBot();
+      if (mainBot) {
+        try {
+          const msg = method === 'card'
+            ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
+            : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as order credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
+          await mainBot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
+        } catch {}
+      }
+    }
+
+    await ctx.editMessageText(
+      `✅ <b>Referral #${refId} — ${label}</b>\n\n` +
+      `$${parseFloat(ref.reward).toFixed(2)} processed for ${owner ? (owner.owner_name || owner.company_name || `ID ${owner.telegram_id}`) : `Owner #${ref.owner_id}`}.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Main Menu', callback_data: 'acct_main_menu' }]] } }
+    );
+  } catch (err) {
+    logger.error('acctRefPayout error:', err);
+  }
+};
+
 module.exports = {
   acctStart, acctMainMenu,
   acctActiveOrders, acctOrderDetail,
@@ -465,4 +509,5 @@ module.exports = {
   acctHistory, acctHistoryOrder,
   acctHandleText,
   acctTrack, acctDeliver, acctClose, acctOpen, acctStatus,
+  acctRefPayout,
 };

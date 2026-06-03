@@ -1113,6 +1113,88 @@ const selectPlatform = async (ctx) => {
   }
 };
 
+// ─── Referral ────────────────────────────────────────────────────────────────
+
+const referralMenu = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return;
+
+    const mgmtUsername = process.env.MANAGEMENT_BOT_USERNAME || 'OA_Management_Bot';
+    const link = `https://t.me/${mgmtUsername}?start=ref_${user.id}`;
+    const balance = parseFloat(user.referral_balance || 0).toFixed(2);
+
+    const Referral = require('../models/Referral');
+    const [total, confirmed, pending] = await Promise.all([
+      Referral.count({ where: { owner_id: user.id } }),
+      Referral.count({ where: { owner_id: user.id, status: 'confirmed' } }),
+      Referral.count({ where: { owner_id: user.id, status: 'pending' } }),
+    ]);
+
+    await ctx.editMessageText(
+      `💰 <b>My Referrals</b>\n\n` +
+      `🔗 <b>Your Referral Link:</b>\n<code>${link}</code>\n\n` +
+      `Share this link with trucking companies who need ELD service. You earn <b>$200</b> for every confirmed referral!\n\n` +
+      `💵 Balance: <b>$${balance}</b>\n` +
+      `📊 Total referrals: <b>${total}</b>  (✅ ${confirmed} confirmed, ⏳ ${pending} pending)`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📋 Referral History', callback_data: 'referral_history_0' }],
+            [{ text: '◀️ Back',             callback_data: 'main_menu' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('referralMenu error:', err);
+  }
+};
+
+const referralHistory = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const page = parseInt(ctx.match[1] || 0, 10);
+    const PAGE = 5;
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return;
+
+    const Referral = require('../models/Referral');
+    const all   = await Referral.findAll({ where: { owner_id: user.id }, order: [['created_at', 'DESC']] });
+    const slice = all.slice(page * PAGE, (page + 1) * PAGE);
+    const pages = Math.ceil(all.length / PAGE) || 1;
+
+    if (!all.length) {
+      return ctx.editMessageText(
+        `📋 <b>Referral History</b>\n\nNo referrals yet. Share your link to start earning!`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+      );
+    }
+
+    const ICON = { pending: '⏳', confirmed: '✅', rejected: '❌', paid: '💰' };
+    const lines = slice.map(r =>
+      `${ICON[r.status] || '•'} <b>${r.referred_company || r.referred_name || '?'}</b> — $${parseFloat(r.reward).toFixed(2)} — ${new Date(r.created_at).toLocaleDateString('en-US')}`
+    ).join('\n');
+
+    const nav = [];
+    if (page > 0)         nav.push({ text: '◀️ Prev', callback_data: `referral_history_${page - 1}` });
+    if (page < pages - 1) nav.push({ text: 'Next ▶️', callback_data: `referral_history_${page + 1}` });
+
+    const kb = [];
+    if (nav.length) kb.push(nav);
+    kb.push([{ text: '◀️ Back', callback_data: 'referral_menu' }]);
+
+    await ctx.editMessageText(
+      `📋 <b>Referral History</b> (${all.length} total)\n\n${lines}`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: kb } }
+    );
+  } catch (err) {
+    logger.error('referralHistory error:', err);
+  }
+};
+
 // ─── Main Menu / Help ─────────────────────────────────────────────────────────
 
 const mainMenu = async (ctx) => {
@@ -1131,10 +1213,11 @@ const mainMenu = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '👥 View Drivers', callback_data: 'drivers_list' }],
-            [{ text: '📦 Order Devices', callback_data: 'order_devices_start' }],
+            [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
+            [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
             [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
-            [{ text: '🔄 Change Team', callback_data: 'change_team' }],
+            [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+            [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
             [{ text: '❓ Help', callback_data: 'help_menu' }],
           ],
         },
@@ -1194,6 +1277,7 @@ module.exports = {
   orderActive, orderHistory, orderDetail,
   dotMenu, dotDetail,
   mainMenu, changeTeam, helpMenu,
+  referralMenu, referralHistory,
   selectPlatform, pendingApiSessions,
   orderPendingCustomQty, orderSessions,
   ORDER_STEPS: ORDER_QA_STEPS,

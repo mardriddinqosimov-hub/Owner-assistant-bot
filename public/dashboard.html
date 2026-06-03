@@ -585,6 +585,10 @@
     </div>
 
     <div class="nav-section">Admin</div>
+    <div class="nav-item" id="nav-referrals" onclick="showPage('referrals')">
+      <span class="nav-icon">💰</span>
+      <span>Referrals</span>
+    </div>
     <div class="nav-item" id="nav-users" onclick="showPage('users')">
       <span class="nav-icon">👥</span>
       <span>Users</span>
@@ -705,6 +709,23 @@
           <button class="btn btn-green" onclick="exportExcel()" id="export-xl-btn">⬇️ Export Excel</button>
         </div>
       </div>
+    </div>
+
+    <!-- ── Referrals ─────────────────────────────────── -->
+    <div class="page" id="page-referrals" style="display:none">
+      <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
+        <div class="stat-card" style="flex:1;min-width:140px"><div class="stat-value" id="ref-total">—</div><div class="stat-label">Total Referrals</div></div>
+        <div class="stat-card" style="flex:1;min-width:140px"><div class="stat-value" id="ref-pending">—</div><div class="stat-label">Pending</div></div>
+        <div class="stat-card" style="flex:1;min-width:140px"><div class="stat-value" id="ref-confirmed">—</div><div class="stat-label">Confirmed</div></div>
+        <div class="stat-card" style="flex:1;min-width:140px"><div class="stat-value" id="ref-paid">—</div><div class="stat-label">Paid Out</div></div>
+      </div>
+      <table class="orders-table" id="referrals-table">
+        <thead><tr>
+          <th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th>
+          <th>Referred By</th><th>Status</th><th>Reward</th><th>Date</th>
+        </tr></thead>
+        <tbody id="referrals-tbody"><tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
+      </table>
     </div>
 
     <!-- ── Users ──────────────────────────────────────── -->
@@ -894,6 +915,7 @@ function showPage(name) {
     'order-management': 'Order Management',
     'order-history':    'Order History',
     'reports':          'Reports',
+    'referrals':        'Referrals',
     'users':            'Users',
   };
   document.getElementById('topbar-title').textContent = titles[name] || '';
@@ -916,6 +938,10 @@ function showPage(name) {
     document.getElementById('nav-reports').classList.add('active');
     searchWrap.style.display = 'none';
     loadReports();
+  } else if (name === 'referrals') {
+    document.getElementById('nav-referrals').classList.add('active');
+    searchWrap.style.display = 'none';
+    loadReferrals();
   } else if (name === 'users') {
     document.getElementById('nav-users').classList.add('active');
     searchWrap.style.display = 'none';
@@ -1428,6 +1454,47 @@ async function exportExcel() {
   } finally {
     btn.disabled = false;
     btn.textContent = '⬇️ Export Excel';
+  }
+}
+
+/* ── Referrals ─────────────────────────────────────────── */
+async function loadReferrals() {
+  try {
+    const r = await fetch('/admin/api/referrals');
+    if (!r.ok) throw new Error('Failed');
+    const refs = await r.json();
+
+    const STATUS_ICON = { pending: '⏳', confirmed: '✅', rejected: '❌', paid: '💰' };
+    const total     = refs.length;
+    const pending   = refs.filter(r => r.status === 'pending').length;
+    const confirmed = refs.filter(r => r.status === 'confirmed').length;
+    const paid      = refs.filter(r => r.status === 'paid').length;
+
+    document.getElementById('ref-total').textContent     = total;
+    document.getElementById('ref-pending').textContent   = pending;
+    document.getElementById('ref-confirmed').textContent = confirmed;
+    document.getElementById('ref-paid').textContent      = paid;
+
+    const tbody = document.getElementById('referrals-tbody');
+    if (!refs.length) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted)">No referrals yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = refs.map(ref => `
+      <tr>
+        <td>#${ref.id}</td>
+        <td>${ref.referred_name || '—'}</td>
+        <td>${ref.referred_company || '—'}</td>
+        <td>${ref.trucks_count || '—'}</td>
+        <td>${ref.referred_phone || '—'}</td>
+        <td>${ref.owner_name || `ID ${ref.owner_id}`}</td>
+        <td>${STATUS_ICON[ref.status] || ''} ${ref.status}</td>
+        <td>$${parseFloat(ref.reward || 200).toFixed(2)}</td>
+        <td>${ref.created_at ? new Date(ref.created_at).toLocaleDateString() : '—'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    document.getElementById('referrals-tbody').innerHTML =
+      '<tr><td colspan="9" style="text-align:center;color:red">Failed to load referrals.</td></tr>';
   }
 }
 

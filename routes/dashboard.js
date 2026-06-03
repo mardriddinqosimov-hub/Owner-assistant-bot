@@ -3,8 +3,9 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const { Op } = require('sequelize');
-const Order = require('../models/Order');
-const User = require('../models/User');
+const Order    = require('../models/Order');
+const User     = require('../models/User');
+const Referral = require('../models/Referral');
 const { getSetting, setSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 
@@ -116,6 +117,25 @@ router.get('/payment/:orderId', async (req, res) => {
   } catch (err) {
     logger.error('Dashboard payment error:', err);
     res.status(500).send('Failed to load payment');
+  }
+});
+
+// ── Referrals list ────────────────────────────────────────────────────────────
+router.get('/api/referrals', async (req, res) => {
+  try {
+    const refs = await Referral.findAll({ order: [['created_at', 'DESC']] });
+    const owners = await User.findAll({ attributes: ['id', 'first_name', 'last_name', 'username', 'owner_name'] });
+    const ownerMap = {};
+    owners.forEach(u => {
+      ownerMap[u.id] = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.owner_name || null;
+    });
+    const result = refs.map(r => ({
+      ...r.dataValues,
+      owner_name: ownerMap[r.owner_id] || null,
+    }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
