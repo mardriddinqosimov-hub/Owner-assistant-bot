@@ -62,7 +62,7 @@ function itemsSummary(order) {
 
 const haStart = async (ctx) => {
   await ctx.reply(
-    `🔐 <b>Algo Head Admin</b>\n\nWelcome back. Choose a section:`,
+    `🔐 <b>AO Head Admin</b>\n\nWelcome back. Choose a section:`,
     { parse_mode: 'HTML', reply_markup: MAIN_KB }
   );
 };
@@ -72,7 +72,7 @@ const haMain = async (ctx) => {
     await ctx.answerCbQuery();
     adminSessions.delete(ctx.from.id);
     await ctx.editMessageText(
-      `🔐 <b>Algo Head Admin</b>\n\nWelcome back. Choose a section:`,
+      `🔐 <b>AO Head Admin</b>\n\nWelcome back. Choose a section:`,
       { parse_mode: 'HTML', reply_markup: MAIN_KB }
     );
   } catch {}
