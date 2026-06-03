@@ -17,6 +17,7 @@ const User = sequelize.define('User', {
   role:         { type: DataTypes.STRING, defaultValue: 'unknown' }, // owner | safety | unknown
   blocked:      { type: DataTypes.BOOLEAN, defaultValue: false },
   referral_balance: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+  card_info:        { type: DataTypes.STRING, allowNull: true },
   deleted_at:       { type: DataTypes.DATE, allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   last_active: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },

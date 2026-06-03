@@ -124,14 +124,18 @@ router.get('/payment/:orderId', async (req, res) => {
 router.get('/api/referrals', async (req, res) => {
   try {
     const refs = await Referral.findAll({ order: [['created_at', 'DESC']] });
-    const owners = await User.findAll({ attributes: ['id', 'first_name', 'last_name', 'username', 'owner_name'] });
+    const owners = await User.findAll({ attributes: ['id', 'first_name', 'last_name', 'username', 'owner_name', 'card_info'] });
     const ownerMap = {};
     owners.forEach(u => {
-      ownerMap[u.id] = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.owner_name || null;
+      ownerMap[u.id] = {
+        name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.owner_name || null,
+        card_info: u.card_info || null,
+      };
     });
     const result = refs.map(r => ({
       ...r.dataValues,
-      owner_name: ownerMap[r.owner_id] || null,
+      owner_name: ownerMap[r.owner_id]?.name || null,
+      owner_card: ownerMap[r.owner_id]?.card_info || null,
     }));
     res.json(result);
   } catch (err) {

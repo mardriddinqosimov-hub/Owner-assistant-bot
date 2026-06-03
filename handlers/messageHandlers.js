@@ -11,6 +11,7 @@ const {
   registrationSessions,
   REG_STEPS,
   REG_PROMPTS,
+  cardSessions,
   showConfirmation,
   buildOrderSummary,
 } = require('./callbackHandlers');
@@ -148,6 +149,19 @@ const handleText = async (ctx) => {
           ],
         },
       }
+    );
+  }
+
+  // ── Card collection flow ───────────────────────────────────────────────────
+  if (cardSessions.has(userId)) {
+    const cardInfo = ctx.message.text.trim();
+    cardSessions.delete(userId);
+    const user = await User.findOne({ where: { telegram_id: userId } });
+    if (user) await user.update({ card_info: cardInfo });
+    const last4 = cardInfo.replace(/\s/g, '').slice(-4);
+    return ctx.reply(
+      `✅ <b>Card saved!</b>\n\nYour card ending in <b>${last4}</b> has been saved.\n\nThe accounting team will send your referral reward there.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
     );
   }
 

@@ -339,6 +339,7 @@ const REG_PROMPTS = {
   reg_address:    '📍 <b>(4/4) Delivery Address</b>\n\nEnter your default delivery address (used for all orders):',
 };
 const registrationSessions = new Map();
+const cardSessions = new Map(); // userId → true, waiting for owner to send card number
 
 function computeFullSetTotal(sets, shipping) {
   return parseFloat((sets * PRICES.fullset_base + (shipping === 'overnight' ? PRICES.fullset_overnight : 0)).toFixed(2));
@@ -1285,5 +1286,6 @@ module.exports = {
   ORDER_PROMPTS: ORDER_QA_PROMPTS,
   CANCEL_KB,
   registrationSessions, REG_STEPS, REG_PROMPTS,
+  cardSessions,
   buildOrderSummary, showConfirmation,
 };

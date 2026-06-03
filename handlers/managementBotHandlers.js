@@ -303,6 +303,23 @@ const mgmtConfirm = async (ctx) => {
         } catch (e) {
           logger.warn('Failed to notify owner of referral confirm:', e.message);
         }
+
+        // Ask for card info if owner hasn't provided it yet
+        if (!owner.card_info) {
+          try {
+            const { cardSessions } = require('./callbackHandlers');
+            cardSessions.set(Number(owner.telegram_id), true);
+            await mainBot.telegram.sendMessage(
+              owner.telegram_id,
+              `💳 <b>One more thing — add your card for payouts</b>\n\n` +
+              `To receive your <b>$${parseFloat(ref.reward).toFixed(2)}</b> reward, please send your card number:\n\n` +
+              `<i>Example: 4111 1111 1111 1234</i>`,
+              { parse_mode: 'HTML' }
+            );
+          } catch (e) {
+            logger.warn('Failed to ask owner for card info:', e.message);
+          }
+        }
       }
 
       // Notify accounting bot
