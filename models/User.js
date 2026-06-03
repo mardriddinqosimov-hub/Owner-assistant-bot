@@ -16,6 +16,7 @@ const User = sequelize.define('User', {
   platform:     { type: DataTypes.STRING, allowNull: true },
   role:         { type: DataTypes.STRING, defaultValue: 'unknown' }, // owner | safety | unknown
   blocked:      { type: DataTypes.BOOLEAN, defaultValue: false },
+  deleted_at:   { type: DataTypes.DATE, allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   last_active: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
 }, { tableName: 'users', timestamps: false });

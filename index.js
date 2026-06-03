@@ -190,6 +190,8 @@ function setupAdminBot() {
   adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
   adminBot.action(/^ha_delete_yes_(\d+)$/,     adminBotHandlers.haDeleteUser);
   adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
+  adminBot.action('ha_report',                               adminBotHandlers.haReport);
+  adminBot.action(/^ha_report_(week|month|all)$/,            adminBotHandlers.haGenerateReport);
 
   adminBot.on('text', adminBotHandlers.haHandleText);
 }

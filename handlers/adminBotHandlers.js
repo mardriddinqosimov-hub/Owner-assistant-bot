@@ -3,6 +3,8 @@ const Order = require('../models/Order');
 const User  = require('../models/User');
 const logger = require('../utils/logger');
 const { getMainBot } = require('../services/notificationService');
+const PDFDocument = require('pdfkit');
+const { PassThrough } = require('stream');
 
 const adminSessions = new Map(); // telegram_id → { action, target? }
 
@@ -16,8 +18,9 @@ const CABLE_NAMES = {
 
 const MAIN_KB = {
   inline_keyboard: [
-    [{ text: '👥 Users',       callback_data: 'ha_users_0' }, { text: '📊 Stats',     callback_data: 'ha_stats' }],
-    [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
+    [{ text: '👥 Users',     callback_data: 'ha_users_0' }, { text: '📊 Stats',   callback_data: 'ha_stats' }],
+    [{ text: '📢 Broadcast', callback_data: 'ha_broadcast' }],
+    [{ text: '📄 Report',    callback_data: 'ha_report' }],
   ],
 };
 
@@ -283,7 +286,7 @@ const haDeleteUser = async (ctx) => {
     const userId = parseInt(ctx.match[1], 10);
     const u = await User.findByPk(userId);
     const name = u ? userName(u) : `User #${userId}`;
-    if (u) await u.destroy();
+    if (u) await u.update({ deleted_at: new Date(), blocked: true });
     await ctx.editMessageText(
       `✅ <b>${name}</b> has been removed from the bot.`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]] } }
@@ -433,6 +436,139 @@ const haHandleText = async (ctx) => {
   );
 };
 
+// ─── Report ───────────────────────────────────────────────────────────────────
+
+const haReport = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      `📄 <b>User Report</b>\n\nSelect report period:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📅 Weekly',   callback_data: 'ha_report_week' }],
+            [{ text: '🗓 Monthly',  callback_data: 'ha_report_month' }],
+            [{ text: '📆 All Time', callback_data: 'ha_report_all' }],
+            [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('haReport error:', err);
+  }
+};
+
+const haGenerateReport = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Generating PDF…');
+    const period = ctx.match[1]; // week | month | all
+
+    const now = new Date();
+    let since = null;
+    let periodLabel = '';
+    if (period === 'week') {
+      since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      periodLabel = 'Weekly Report (last 7 days)';
+    } else if (period === 'month') {
+      since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      periodLabel = 'Monthly Report (last 30 days)';
+    } else {
+      periodLabel = 'All-Time Report';
+    }
+
+    const dateWhere = since ? { [Op.gte]: since } : { [Op.not]: null };
+
+    const [joined, deleted, totalActive, totalBlocked] = await Promise.all([
+      User.findAll({
+        where: { created_at: dateWhere, deleted_at: null },
+        order: [['created_at', 'ASC']],
+      }),
+      User.findAll({
+        where: { deleted_at: dateWhere },
+        order: [['deleted_at', 'ASC']],
+      }),
+      User.count({ where: { deleted_at: null, blocked: { [Op.not]: true } } }),
+      User.count({ where: { deleted_at: null, blocked: true } }),
+    ]);
+
+    // Build PDF
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const stream = new PassThrough();
+    const chunks = [];
+
+    doc.pipe(stream);
+    stream.on('data', chunk => chunks.push(chunk));
+
+    const generatedAt = now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
+
+    // Header
+    doc.fontSize(22).font('Helvetica-Bold').text('AO Head Admin', { align: 'center' });
+    doc.fontSize(16).font('Helvetica').text(periodLabel, { align: 'center' });
+    doc.fontSize(10).fillColor('#888').text(`Generated: ${generatedAt}`, { align: 'center' });
+    doc.moveDown(1.5).fillColor('#000');
+
+    // Summary box
+    doc.fontSize(13).font('Helvetica-Bold').text('Summary');
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
+    doc.moveDown(0.3).font('Helvetica').fontSize(11);
+    doc.text(`New users joined:       ${joined.length}`);
+    doc.text(`Users deleted by admin: ${deleted.length}`);
+    doc.text(`Total active users:     ${totalActive}`);
+    doc.text(`Total blocked users:    ${totalBlocked}`);
+    doc.moveDown(1.5);
+
+    // Joined section
+    doc.fontSize(13).font('Helvetica-Bold').text(`New Users Joined (${joined.length})`);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
+    doc.moveDown(0.3).font('Helvetica').fontSize(10);
+
+    if (joined.length === 0) {
+      doc.fillColor('#888').text('No new users in this period.').fillColor('#000');
+    } else {
+      joined.forEach((u, i) => {
+        const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `ID ${u.telegram_id}`;
+        const company = u.company_name || '—';
+        const role = u.role || 'unknown';
+        const date = fmtDate(u.created_at);
+        doc.text(`${i + 1}. ${name}  |  ${company}  |  Role: ${role}  |  Joined: ${date}`);
+      });
+    }
+    doc.moveDown(1.5);
+
+    // Deleted section
+    doc.fontSize(13).font('Helvetica-Bold').text(`Deleted by Admin (${deleted.length})`);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
+    doc.moveDown(0.3).font('Helvetica').fontSize(10);
+
+    if (deleted.length === 0) {
+      doc.fillColor('#888').text('No users deleted in this period.').fillColor('#000');
+    } else {
+      deleted.forEach((u, i) => {
+        const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `ID ${u.telegram_id}`;
+        const company = u.company_name || '—';
+        const date = fmtDate(u.deleted_at);
+        doc.text(`${i + 1}. ${name}  |  ${company}  |  Deleted: ${date}`);
+      });
+    }
+
+    doc.end();
+
+    await new Promise(resolve => stream.on('end', resolve));
+    const pdfBuffer = Buffer.concat(chunks);
+
+    const filename = `report_${period}_${now.toISOString().slice(0, 10)}.pdf`;
+    await ctx.replyWithDocument(
+      { source: pdfBuffer, filename },
+      { caption: `📄 <b>${periodLabel}</b>\n\nJoined: ${joined.length}  |  Deleted: ${deleted.length}  |  Active: ${totalActive}`, parse_mode: 'HTML' }
+    );
+  } catch (err) {
+    logger.error('haGenerateReport error:', err);
+    await ctx.reply('❌ Failed to generate report.');
+  }
+};
+
 // ─── New order notification ───────────────────────────────────────────────────
 
 async function notifyNewOrder(bot, adminId, order) {
@@ -458,6 +594,7 @@ module.exports = {
   haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
+  haReport, haGenerateReport,
   haHandleText,
   notifyNewOrder,
 };
