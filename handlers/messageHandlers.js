@@ -154,11 +154,34 @@ const handleText = async (ctx) => {
 
   // ── Card collection flow ───────────────────────────────────────────────────
   if (cardSessions.has(userId)) {
+    const session  = cardSessions.get(userId);
     const cardInfo = ctx.message.text.trim();
     cardSessions.delete(userId);
     const user = await User.findOne({ where: { telegram_id: userId } });
     if (user) await user.update({ card_info: cardInfo });
-    const last4 = cardInfo.replace(/\s/g, '').slice(-4);
+    const last4   = cardInfo.replace(/\s/g, '').slice(-4);
+    const purpose = session?.purpose || 'save';
+
+    if (purpose === 'withdraw' && user) {
+      const balance = parseFloat(user.referral_balance || 0);
+      const acctBot = notifService.getAccountingBot();
+      const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
+      if (acctBot && balance > 0) {
+        try {
+          const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
+          await acctBot.telegram.sendMessage(
+            ADMIN_ID,
+            `💳 <b>Balance Withdrawal Request</b>\n\nOwner: <b>${ownerLabel}</b>\nCompany: ${user.company_name || '—'}\nAmount: <b>$${balance.toFixed(2)}</b>\nCard: ••••${last4} (just saved)`,
+            { parse_mode: 'HTML' }
+          );
+        } catch {}
+      }
+      return ctx.reply(
+        `✅ <b>Card saved & Withdrawal Requested!</b>\n\nYour card ending in <b>${last4}</b> has been saved.\n\n<b>$${balance.toFixed(2)}</b> will be sent to your card within 1–2 business days.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+      );
+    }
+
     return ctx.reply(
       `✅ <b>Card saved!</b>\n\nYour card ending in <b>${last4}</b> has been saved.\n\nThe accounting team will send your referral reward there.`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }

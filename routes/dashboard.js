@@ -143,6 +143,77 @@ router.get('/api/referrals', async (req, res) => {
   }
 });
 
+// ── Referral payout (from dashboard) ─────────────────────────────────────────
+router.post('/api/referral-payout', express.json(), async (req, res) => {
+  try {
+    const { refId, method } = req.body; // method: 'card' | 'credit'
+    if (!refId || !['card', 'credit'].includes(method)) {
+      return res.status(400).json({ error: 'Invalid parameters' });
+    }
+
+    const ref = await Referral.findByPk(refId);
+    if (!ref) return res.status(404).json({ error: 'Referral not found' });
+    if (ref.status === 'paid') return res.status(400).json({ error: 'Already processed' });
+
+    await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
+
+    const owner = await User.findByPk(ref.owner_id);
+    let newBal = 0;
+    if (owner) {
+      newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
+      await owner.update({ referral_balance: newBal.toFixed(2) });
+
+      if (_bot) {
+        try {
+          const msg = method === 'card'
+            ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
+            : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as service credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
+          await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
+        } catch {}
+      }
+    }
+
+    res.json({ ok: true, newBalance: newBal.toFixed(2) });
+  } catch (err) {
+    logger.error('Referral payout error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Referral balances (all owners) ────────────────────────────────────────────
+router.get('/api/referral-balances', async (req, res) => {
+  try {
+    const users = await User.findAll({
+      attributes: ['id', 'first_name', 'last_name', 'username', 'owner_name', 'company_name', 'referral_balance', 'card_info'],
+      where: { deleted_at: null },
+    });
+    const allRefs = await Referral.findAll({ attributes: ['owner_id', 'reward', 'status'] });
+
+    const result = users
+      .map(u => {
+        const refs      = allRefs.filter(r => r.owner_id === u.id);
+        const total     = refs.length;
+        const totalEarned = refs
+          .filter(r => ['confirmed', 'paid'].includes(r.status))
+          .reduce((sum, r) => sum + parseFloat(r.reward || 0), 0);
+        return {
+          id:            u.id,
+          name:          [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.owner_name || null,
+          company:       u.company_name || '—',
+          balance:       parseFloat(u.referral_balance || 0),
+          total_refs:    total,
+          total_earned:  totalEarned,
+          card_info:     u.card_info ? '••••' + u.card_info.replace(/\s/g, '').slice(-4) : null,
+        };
+      })
+      .filter(u => u.total_refs > 0 || u.balance > 0);
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Users list ───────────────────────────────────────────────────────────────
 router.get('/api/users', async (req, res) => {
   try {

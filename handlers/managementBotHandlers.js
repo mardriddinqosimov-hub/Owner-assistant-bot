@@ -308,7 +308,7 @@ const mgmtConfirm = async (ctx) => {
         if (!owner.card_info) {
           try {
             const { cardSessions } = require('./callbackHandlers');
-            cardSessions.set(Number(owner.telegram_id), true);
+            cardSessions.set(Number(owner.telegram_id), { purpose: 'save' });
             await mainBot.telegram.sendMessage(
               owner.telegram_id,
               `💳 <b>One more thing — add your card for payouts</b>\n\n` +

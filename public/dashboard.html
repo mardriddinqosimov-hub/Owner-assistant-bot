@@ -711,13 +711,14 @@
         <span class="pill" data-rs="rewarded" onclick="setRefSection('rewarded')">💳 Rewarded</span>
         <span class="pill" data-rs="service" onclick="setRefSection('service')">📦 Service Cover</span>
         <span class="pill" data-rs="pending" onclick="setRefSection('pending')">⏳ Pending</span>
+        <span class="pill" data-rs="balances" onclick="setRefSection('balances')">💰 Owner Balances</span>
       </div>
 
-      <!-- Confirmed by Management -->
+      <!-- Confirmed by Management — accounting acts here -->
       <div id="ref-section-confirmed">
         <table class="orders-table">
-          <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Confirmed Date</th></tr></thead>
-          <tbody id="ref-tbody-confirmed"><tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
+          <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Confirmed Date</th><th>Action</th></tr></thead>
+          <tbody id="ref-tbody-confirmed"><tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
         </table>
       </div>
 
@@ -729,7 +730,7 @@
         </table>
       </div>
 
-      <!-- Service Cover (credit applied to service) -->
+      <!-- Service Cover -->
       <div id="ref-section-service" style="display:none">
         <table class="orders-table">
           <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Credit Amount</th><th>Applied Date</th></tr></thead>
@@ -742,6 +743,14 @@
         <table class="orders-table">
           <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Submitted</th></tr></thead>
           <tbody id="ref-tbody-pending"><tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- Owner Balances -->
+      <div id="ref-section-balances" style="display:none">
+        <table class="orders-table">
+          <thead><tr><th>Owner</th><th>Company</th><th>Balance</th><th>Total Referrals</th><th>Total Earned</th><th>Card on File</th></tr></thead>
+          <tbody id="ref-tbody-balances"><tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1475,11 +1484,12 @@ let _currentRefSection = 'confirmed';
 
 function setRefSection(section) {
   _currentRefSection = section;
-  ['confirmed','rewarded','service','pending'].forEach(s => {
+  ['confirmed','rewarded','service','pending','balances'].forEach(s => {
     document.getElementById(`ref-section-${s}`).style.display = s === section ? '' : 'none';
     const pill = document.querySelector(`[data-rs="${s}"]`);
     if (pill) pill.classList.toggle('active', s === section);
   });
+  if (section === 'balances') loadBalances();
 }
 
 async function loadReferrals() {
@@ -1513,7 +1523,11 @@ async function loadReferrals() {
         <td>${ref.owner_name || `ID ${ref.owner_id}`}</td>
         <td><b>$${parseFloat(ref.reward || 200).toFixed(2)}</b></td>
         <td>${fmtDate(ref.confirmed_at)}</td>
-      </tr>`).join('') : empty(8);
+        <td style="white-space:nowrap">
+          <button onclick="refPayout(${ref.id},'card')" style="background:#3b82f6;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:4px">💳 Pay Card</button>
+          <button onclick="refPayout(${ref.id},'credit')" style="background:#10b981;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">📦 Service</button>
+        </td>
+      </tr>`).join('') : empty(9);
 
     document.getElementById('ref-tbody-rewarded').innerHTML = rewarded.length ? rewarded.map(ref => `
       <tr>
@@ -1553,6 +1567,49 @@ async function loadReferrals() {
       const el = document.getElementById(`ref-tbody-${s}`);
       if (el) el.innerHTML = '<tr><td colspan="8" style="text-align:center;color:red">Failed to load.</td></tr>';
     });
+  }
+}
+
+async function refPayout(refId, method) {
+  const label = method === 'card' ? '💳 Pay to Card' : '📦 Apply as Service Credit';
+  if (!confirm(`${label} for referral #${refId}?\n\nThis will notify the owner and move the record to the paid section.`)) return;
+  try {
+    const r = await fetch('/admin/api/referral-payout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refId, method }),
+    });
+    const data = await r.json();
+    if (!r.ok) { alert('Error: ' + (data.error || r.status)); return; }
+    alert(`✅ Done! Owner notified. New balance: $${data.newBalance}`);
+    loadReferrals();
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  }
+}
+
+async function loadBalances() {
+  const tbody = document.getElementById('ref-tbody-balances');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const r = await fetch('/admin/api/referral-balances');
+    if (!r.ok) throw new Error('Failed');
+    const owners = await r.json();
+    if (!owners.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">No owners with referral activity yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = owners.map(o => `
+      <tr>
+        <td>${o.name || `ID ${o.id}`}</td>
+        <td>${o.company}</td>
+        <td><b style="color:${o.balance > 0 ? '#10b981' : 'var(--muted)'}">$${o.balance.toFixed(2)}</b></td>
+        <td>${o.total_refs}</td>
+        <td>$${o.total_earned.toFixed(2)}</td>
+        <td>${o.card_info || '<span style="color:var(--muted)">—</span>'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:red">Failed to load balances.</td></tr>';
   }
 }
 

@@ -96,6 +96,9 @@ bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
 // ─── Referral ─────────────────────────────────────────────────────────────────
 bot.action('referral_menu',                  callbackHandlers.referralMenu);
 bot.action(/^referral_history_(\d+)$/,       callbackHandlers.referralHistory);
+bot.action('referral_balance',               callbackHandlers.referralBalanceMenu);
+bot.action('ref_withdraw_card',              callbackHandlers.refWithdrawCard);
+bot.action('ref_cover_service',              callbackHandlers.refCoverService);
 
 // ─── Platform selection ───────────────────────────────────────────────────────
 bot.action(/^platform_select_(leader|factor)$/, callbackHandlers.selectPlatform);

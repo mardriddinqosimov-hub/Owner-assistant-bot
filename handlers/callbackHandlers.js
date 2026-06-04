@@ -1143,6 +1143,7 @@ const referralMenu = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
+            [{ text: `💵 My Balance ($${balance})`, callback_data: 'referral_balance' }],
             [{ text: '📤 Send to Friend', url: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Join Algo Group ELD — best fleet management service! Use my referral link to get started 🚛')}` }],
             [{ text: '📋 Referral History', callback_data: 'referral_history_0' }],
             [{ text: '◀️ Back',             callback_data: 'main_menu' }],
@@ -1194,6 +1195,125 @@ const referralHistory = async (ctx) => {
     );
   } catch (err) {
     logger.error('referralHistory error:', err);
+  }
+};
+
+// ─── Referral Balance ─────────────────────────────────────────────────────────
+
+const referralBalanceMenu = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return;
+
+    const balance = parseFloat(user.referral_balance || 0);
+    const balStr  = balance.toFixed(2);
+
+    if (balance <= 0) {
+      return ctx.editMessageText(
+        `💵 <b>My Balance: $0.00</b>\n\nNo balance yet. Earn <b>$200</b> for every confirmed referral!`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+      );
+    }
+
+    const cardLine = user.card_info
+      ? `\n💳 Card on file: ••••${user.card_info.replace(/\s/g, '').slice(-4)}`
+      : `\n💳 No card on file yet`;
+
+    await ctx.editMessageText(
+      `💵 <b>My Balance: $${balStr}</b>${cardLine}\n\nWhat would you like to do with your balance?`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💳 Withdraw to Card',      callback_data: 'ref_withdraw_card' }],
+            [{ text: '📦 Cover Service Payment', callback_data: 'ref_cover_service' }],
+            [{ text: '💰 Keep for Now',           callback_data: 'referral_menu' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('referralBalanceMenu error:', err);
+  }
+};
+
+const refWithdrawCard = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return;
+
+    const balance = parseFloat(user.referral_balance || 0);
+    if (balance <= 0) {
+      return ctx.editMessageText('❌ No balance to withdraw.',
+        { reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } });
+    }
+
+    if (!user.card_info) {
+      cardSessions.set(ctx.from.id, { purpose: 'withdraw' });
+      return ctx.editMessageText(
+        `💳 <b>Enter Your Card Number</b>\n\nTo withdraw <b>$${balance.toFixed(2)}</b>, please send your card number:\n\n<i>Example: 4111 1111 1111 1234</i>`,
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    const last4   = user.card_info.replace(/\s/g, '').slice(-4);
+    const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
+    const { getAccountingBot } = require('../services/notificationService');
+    const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
+    const acctBot = getAccountingBot();
+    if (acctBot) {
+      try {
+        await acctBot.telegram.sendMessage(
+          ADMIN_ID,
+          `💳 <b>Balance Withdrawal Request</b>\n\nOwner: <b>${ownerLabel}</b>\nCompany: ${user.company_name || '—'}\nAmount: <b>$${balance.toFixed(2)}</b>\nCard: ••••${last4}`,
+          { parse_mode: 'HTML' }
+        );
+      } catch {}
+    }
+
+    await ctx.editMessageText(
+      `✅ <b>Withdrawal Requested!</b>\n\n<b>$${balance.toFixed(2)}</b> will be sent to your card ending in <b>${last4}</b>.\n\nThe accounting team will process it within 1–2 business days.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+    );
+  } catch (err) {
+    logger.error('refWithdrawCard error:', err);
+  }
+};
+
+const refCoverService = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return;
+
+    const balance = parseFloat(user.referral_balance || 0);
+    if (balance <= 0) {
+      return ctx.editMessageText('❌ No balance to apply.',
+        { reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } });
+    }
+
+    const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
+    const { getAccountingBot } = require('../services/notificationService');
+    const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
+    const acctBot = getAccountingBot();
+    if (acctBot) {
+      try {
+        await acctBot.telegram.sendMessage(
+          ADMIN_ID,
+          `📦 <b>Service Cover Request</b>\n\nOwner: <b>${ownerLabel}</b>\nCompany: ${user.company_name || '—'}\nAmount to apply: <b>$${balance.toFixed(2)}</b>`,
+          { parse_mode: 'HTML' }
+        );
+      } catch {}
+    }
+
+    await ctx.editMessageText(
+      `✅ <b>Request Sent!</b>\n\n<b>$${balance.toFixed(2)}</b> will be applied toward your service payment.\n\nThe accounting team will confirm shortly.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+    );
+  } catch (err) {
+    logger.error('refCoverService error:', err);
   }
 };
 
@@ -1280,6 +1400,7 @@ module.exports = {
   dotMenu, dotDetail,
   mainMenu, changeTeam, helpMenu,
   referralMenu, referralHistory,
+  referralBalanceMenu, refWithdrawCard, refCoverService,
   selectPlatform, pendingApiSessions,
   orderPendingCustomQty, orderSessions,
   ORDER_STEPS: ORDER_QA_STEPS,
