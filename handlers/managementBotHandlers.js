@@ -151,6 +151,11 @@ const mgmtHandleText = async (ctx) => {
     { parse_mode: 'HTML' }
   );
 
+  // Look up owner name + company for the notification
+  const owner = await User.findByPk(session.owner_id);
+  const ownerTgName  = owner ? ([owner.first_name, owner.last_name].filter(Boolean).join(' ') || owner.username || owner.owner_name || `ID ${owner.telegram_id}`) : `ID ${session.owner_id}`;
+  const ownerCompany = owner?.company_name || '—';
+
   // Notify admin in this bot
   const { getManagementBot } = require('../services/notificationService');
   const mgmtBot = getManagementBot();
@@ -158,19 +163,22 @@ const mgmtHandleText = async (ctx) => {
     try {
       await mgmtBot.telegram.sendMessage(
         ADMIN_ID,
-        `🔔 <b>New Referral Request #${ref.id}</b>\n\n` +
+        `🔔 <b>New Referral — Action Required</b>\n\n` +
+        `<b>New Client:</b>\n` +
         `👤 ${session.name}\n` +
         `🏢 ${session.company}\n` +
         `🚛 Trucks: ${session.trucks}\n` +
         `📱 ${session.phone}\n\n` +
-        `Referred by owner ID: ${session.owner_id}`,
+        `<b>Referred by:</b>\n` +
+        `👨‍💼 ${ownerTgName} — ${ownerCompany}\n\n` +
+        `Confirm the <b>$200</b> referral reward for this owner?`,
         {
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '✅ Confirm (+$200)', callback_data: `mg_confirm_${ref.id}` },
-                { text: '❌ Reject',          callback_data: `mg_reject_${ref.id}` },
+                { text: '✅ Confirm Reward (+$200)', callback_data: `mg_confirm_${ref.id}` },
+                { text: '❌ Reject',                 callback_data: `mg_reject_${ref.id}` },
               ],
             ],
           },
