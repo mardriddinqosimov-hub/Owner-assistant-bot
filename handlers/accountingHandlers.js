@@ -79,6 +79,14 @@ function orderDetailKb(orderId, hasTracking) {
 // ─── Main menu ────────────────────────────────────────────────────────────────
 
 const acctStart = async (ctx) => {
+  // Auto-register this user as accounting_admin
+  await User.upsert({
+    telegram_id: ctx.from.id,
+    first_name:  ctx.from.first_name || null,
+    last_name:   ctx.from.last_name  || null,
+    username:    ctx.from.username   || null,
+    role:        'accounting_admin',
+  });
   await ctx.reply(`🏦 <b>Device Order Admin</b>\n\nChoose a section:`, { parse_mode: 'HTML', reply_markup: MAIN_KB });
 };
 

@@ -634,14 +634,13 @@ const haAdmins = async (ctx) => {
       callback_data: `ha_admin_${u.id}`,
     }]);
 
-    buttons.push([{ text: '➕ Add Admin', callback_data: 'ha_admin_add' }]);
     buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
 
     await ctx.editMessageText(
       `👑 <b>Admin Users</b>  (${admins.length})\n\n` +
-      `These users have access to the accounting or management bots.\n\n` +
-      `💼 Device Order Admin — uses OA Device Order Bot + Website\n` +
-      `📋 Management Admin — uses OA Management Bot`,
+      `Admins appear here automatically when they first use their bot.\n\n` +
+      `💼 Device Order Admin — OA Device Order Bot + Website\n` +
+      `📋 Management Admin — OA Management Bot`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
     );
   } catch (err) {

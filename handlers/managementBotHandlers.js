@@ -69,6 +69,14 @@ const mgmtStart = async (ctx) => {
     const param   = ctx.startPayload; // 'ref_123' or empty
 
     if (isAdmin && !param) {
+      // Auto-register this user as management_admin
+      await User.upsert({
+        telegram_id: ctx.from.id,
+        first_name:  ctx.from.first_name || null,
+        last_name:   ctx.from.last_name  || null,
+        username:    ctx.from.username   || null,
+        role:        'management_admin',
+      });
       const [pending, confirmed] = await Promise.all([
         Referral.count({ where: { status: 'pending' } }),
         Referral.count({ where: { status: 'confirmed' } }),
