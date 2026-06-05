@@ -87,12 +87,41 @@ async function fetchInspections(companyKey) {
   const client = makeClient(companyKey);
   try {
     const res = await client.get('/dot-inspections', { params: { limit: 200 } });
-    const data = res.data?.data;
+    const raw = res.data;
+    logger.info('fetchInspections raw response:', JSON.stringify(raw).slice(0, 500));
+    const data = raw?.data ?? raw?.inspections ?? raw?.results ?? raw;
     return Array.isArray(data) ? data : [];
   } catch (err) {
-    logger.warn('fetchInspections failed:', err.response?.data?.description || err.message);
+    logger.warn('fetchInspections failed:', err.response?.status, err.response?.data?.description || err.message);
     return [];
   }
 }
 
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, formatSeconds, reverseGeocode };
+// Fetch recent driver log events to detect DOT inspections from event notes
+async function fetchDriverLogEvents(companyKey, daysBack = 2) {
+  const client = makeClient(companyKey);
+  const from = new Date();
+  from.setDate(from.getDate() - daysBack);
+  const fromStr = from.toISOString().split('T')[0];
+  try {
+    // Try common DriveHOS event endpoint variants
+    let data = [];
+    for (const endpoint of ['/driver-logs', '/eld-events', '/driver-events', '/log-events']) {
+      try {
+        const res = await client.get(endpoint, { params: { limit: 500, from_date: fromStr } });
+        const raw = res.data?.data ?? res.data?.results ?? res.data;
+        if (Array.isArray(raw) && raw.length > 0) {
+          data = raw;
+          logger.info(`fetchDriverLogEvents: found data at ${endpoint} (${raw.length} events)`);
+          break;
+        }
+      } catch {}
+    }
+    return data;
+  } catch (err) {
+    logger.warn('fetchDriverLogEvents failed:', err.message);
+    return [];
+  }
+}
+
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, formatSeconds, reverseGeocode };

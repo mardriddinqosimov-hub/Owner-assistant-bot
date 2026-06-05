@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents } = require('../services/eldService');
 
 function isActiveDriver(d) {
   if (d.status !== undefined) return String(d.status).toLowerCase() === 'active';
@@ -249,54 +249,98 @@ const orders = async (ctx) => {
 
 // ─── DOT Inspection Polling ───────────────────────────────────────────────────
 
+function parseInspField(insp, ...keys) {
+  for (const k of keys) if (insp[k] != null) return insp[k];
+  return null;
+}
+
+async function saveAndNotifyInspection(bot, user, insp, externalId) {
+  const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
+  if (existing) return;
+
+  const rawDate = parseInspField(insp,
+    'inspection_date', 'inspectionDate', 'date', 'event_time', 'eventTime', 'start_time', 'startTime');
+  const driverName = parseInspField(insp,
+    'driver_name', 'driverName', 'driver', 'name') || 'Unknown Driver';
+  const driverId = String(parseInspField(insp, 'driver_id', 'driverId', 'driver_id') || '');
+  const reportNum = parseInspField(insp, 'report_number', 'reportNumber', 'report_id', 'reportId') || '';
+  const level = String(parseInspField(insp, 'level', 'inspection_level', 'inspectionLevel') || '');
+  const violations = parseInt(parseInspField(insp, 'violations', 'violation_count', 'violationCount') || 0, 10);
+  const result = parseInspField(insp, 'result', 'outcome', 'inspection_result', 'inspectionResult') || '';
+
+  const record = await Inspection.create({
+    user_id:         user.id,
+    driver_id:       driverId,
+    driver_name:     driverName,
+    external_id:     externalId,
+    inspection_date: rawDate ? new Date(rawDate) : null,
+    report_number:   reportNum,
+    level,
+    violations,
+    result,
+    details:         JSON.stringify(insp),
+    notified:        false,
+    created_at:      new Date(),
+  });
+
+  const v = record.violations;
+  const dateStr = record.inspection_date
+    ? new Date(record.inspection_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    : 'Unknown date';
+
+  await bot.telegram.sendMessage(
+    user.telegram_id,
+    `🚔 <b>DOT Inspection Alert!</b>\n\n` +
+    `Driver: <b>${record.driver_name}</b>\n` +
+    `Date: ${dateStr}\n` +
+    (record.report_number ? `Report #: ${record.report_number}\n` : '') +
+    (record.level ? `Level: ${record.level}\n` : '') +
+    `Violations: ${v} ${v > 0 ? '⚠️' : '✅'}\n` +
+    (record.result ? `Result: ${record.result.toUpperCase()}\n` : '') +
+    `\nView details in <b>DOT Inspections</b> → menu.`,
+    { parse_mode: 'HTML' }
+  );
+
+  await record.update({ notified: true });
+  logger.info(`DOT inspection alert sent to user ${user.id}: ${externalId}`);
+}
+
 async function checkNewInspections(bot) {
   const users = await User.findAll({ where: { company_api_key: { [Op.ne]: null } } });
 
   for (const user of users) {
     try {
+      // ── Primary: /dot-inspections endpoint ──────────────────────────────────
       const inspections = await fetchInspections(user.company_api_key);
+      logger.info(`checkNewInspections: user ${user.id} got ${inspections.length} records from /dot-inspections`);
+
       for (const insp of inspections) {
-        const externalId = String(insp.inspection_id || insp.id || '');
-        if (!externalId) continue;
-
-        const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
-        if (existing) continue;
-
-        const record = await Inspection.create({
-          user_id:         user.id,
-          driver_id:       String(insp.driver_id || ''),
-          driver_name:     insp.driver_name || 'Unknown Driver',
-          external_id:     externalId,
-          inspection_date: insp.inspection_date || insp.date ? new Date(insp.inspection_date || insp.date) : null,
-          report_number:   insp.report_number || insp.report_id || '',
-          level:           String(insp.level || ''),
-          violations:      parseInt(insp.violations || insp.violation_count || 0, 10),
-          result:          insp.result || insp.outcome || '',
-          details:         JSON.stringify(insp),
-          notified:        false,
-          created_at:      new Date(),
-        });
-
-        const v = record.violations;
-        const dateStr = record.inspection_date
-          ? new Date(record.inspection_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-          : 'Unknown date';
-
-        await bot.telegram.sendMessage(
-          user.telegram_id,
-          `🚔 <b>DOT Inspection Alert!</b>\n\n` +
-          `Driver: <b>${record.driver_name}</b>\n` +
-          `Date: ${dateStr}\n` +
-          (record.report_number ? `Report #: ${record.report_number}\n` : '') +
-          (record.level ? `Level: ${record.level}\n` : '') +
-          `Violations: ${v} ${v > 0 ? '⚠️' : '✅'}\n` +
-          (record.result ? `Result: ${record.result.toUpperCase()}\n` : '') +
-          `\nView details in <b>DOT Inspections</b> → menu.`,
-          { parse_mode: 'HTML' }
+        const externalId = String(
+          parseInspField(insp, 'inspection_id', 'inspectionId', 'id', 'dot_inspection_id', 'dotInspectionId') || ''
         );
+        if (!externalId) continue;
+        await saveAndNotifyInspection(bot, user, insp, `dot-${externalId}`);
+      }
 
-        await record.update({ notified: true });
-        logger.info(`New DOT inspection alert sent to user ${user.id}: ${externalId}`);
+      // ── Fallback: scan driver log events for "DOT Inspection" notes ─────────
+      const events = await fetchDriverLogEvents(user.company_api_key, 2);
+      logger.info(`checkNewInspections: user ${user.id} got ${events.length} log events`);
+
+      for (const ev of events) {
+        const notes = String(
+          parseInspField(ev, 'notes', 'note', 'comment', 'annotation', 'description') || ''
+        ).toLowerCase();
+        if (!notes.includes('dot inspection') && !notes.includes('dot_inspection')) continue;
+
+        // Build a stable external_id from event sequence id or time+driver
+        const seqId = parseInspField(ev, 'id', 'seq_id', 'seqId', 'sequence_id', 'event_id', 'eventId');
+        const evTime = parseInspField(ev, 'event_time', 'eventTime', 'start_time', 'startTime', 'date', 'created_at');
+        const evDriver = parseInspField(ev, 'driver_id', 'driverId') || 'unknown';
+        const externalId = seqId
+          ? `event-${seqId}`
+          : `event-${evDriver}-${evTime ? new Date(evTime).getTime() : Date.now()}`;
+
+        await saveAndNotifyInspection(bot, user, ev, externalId);
       }
     } catch (err) {
       logger.warn(`Inspection check failed for user ${user.id}:`, err.message);
