@@ -634,11 +634,15 @@ const haAdmins = async (ctx) => {
       callback_data: `ha_admin_${u.id}`,
     }]);
 
+    buttons.push([{ text: '➕ Add Admin', callback_data: 'ha_admin_add' }]);
     buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
 
+    const hint = admins.length === 0
+      ? `No admins yet. Tap <b>➕ Add Admin</b> to add one.\n\n`
+      : '';
+
     await ctx.editMessageText(
-      `👑 <b>Admin Users</b>  (${admins.length})\n\n` +
-      `Admins appear here automatically when they first use their bot.\n\n` +
+      `👑 <b>Admin Users</b>  (${admins.length})\n\n` + hint +
       `💼 Device Order Admin — OA Device Order Bot + Website\n` +
       `📋 Management Admin — OA Management Bot`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
