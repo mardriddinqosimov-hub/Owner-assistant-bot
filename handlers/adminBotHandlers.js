@@ -18,9 +18,10 @@ const CABLE_NAMES = {
 
 const MAIN_KB = {
   inline_keyboard: [
-    [{ text: '👥 Users',     callback_data: 'ha_users_0' }, { text: '📊 Stats',   callback_data: 'ha_stats' }],
-    [{ text: '📢 Broadcast', callback_data: 'ha_broadcast' }],
-    [{ text: '📄 Report',    callback_data: 'ha_report' }],
+    [{ text: '👥 Users',       callback_data: 'ha_users_0' }, { text: '📊 Stats',  callback_data: 'ha_stats' }],
+    [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
+    [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
+    [{ text: '📄 Report',      callback_data: 'ha_report' }],
   ],
 };
 
@@ -393,7 +394,49 @@ const haBcTarget = async (ctx) => {
 
 const haHandleText = async (ctx) => {
   const session = adminSessions.get(ctx.from.id);
-  if (!session || session.action !== 'broadcast') return;
+  if (!session) return;
+
+  // ── Add admin by Telegram ID ─────────────────────────────────────────────
+  if (session.action === 'admin_add_id') {
+    adminSessions.delete(ctx.from.id);
+    const input = ctx.message.text.trim();
+    const tgId  = parseInt(input, 10);
+    if (!tgId || isNaN(tgId)) {
+      return ctx.reply('❌ Invalid Telegram ID. Please enter a numeric ID.', {
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'ha_admins' }]] },
+      });
+    }
+
+    let user = await User.findOne({ where: { telegram_id: tgId } });
+    if (!user) {
+      // Create a placeholder user so the admin can log in later
+      user = await User.create({ telegram_id: tgId, role: session.role });
+    } else {
+      await user.update({ role: session.role });
+    }
+
+    // Try to backfill name from Telegram
+    const mainBot = getMainBot();
+    if (mainBot && (!user.first_name && !user.username)) {
+      try {
+        const chat = await mainBot.telegram.getChat(tgId);
+        await user.update({ first_name: chat.first_name || null, last_name: chat.last_name || null, username: chat.username || null });
+        user = await User.findByPk(user.id);
+      } catch {}
+    }
+
+    return ctx.reply(
+      `✅ <b>${userName(user)}</b> added as <b>${ROLE_LABELS[session.role]}</b>.\n\n` +
+      `Telegram ID: <code>${tgId}</code>\n\n` +
+      `They can now use their respective bot.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Admin Users', callback_data: 'ha_admins' }]] },
+      }
+    );
+  }
+
+  if (session.action !== 'broadcast') return;
 
   adminSessions.delete(ctx.from.id);
   const { target } = session;
@@ -569,6 +612,153 @@ const haGenerateReport = async (ctx) => {
   }
 };
 
+// ─── Admin Users ─────────────────────────────────────────────────────────────
+
+const ADMIN_ROLES = ['accounting_admin', 'management_admin'];
+
+const ROLE_LABELS = {
+  accounting_admin:  '💼 Device Order Admin',
+  management_admin:  '📋 Management Admin',
+};
+
+const haAdmins = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const admins = await User.findAll({
+      where: { role: { [Op.in]: ADMIN_ROLES }, deleted_at: null },
+      order: [['role', 'ASC'], ['created_at', 'ASC']],
+    });
+
+    const buttons = admins.map(u => [{
+      text: `${ROLE_LABELS[u.role] || u.role} — ${userName(u)}${u.blocked ? ' 🚫' : ''}`,
+      callback_data: `ha_admin_${u.id}`,
+    }]);
+
+    buttons.push([{ text: '➕ Add Admin', callback_data: 'ha_admin_add' }]);
+    buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
+
+    await ctx.editMessageText(
+      `👑 <b>Admin Users</b>  (${admins.length})\n\n` +
+      `These users have access to the accounting or management bots.\n\n` +
+      `💼 Device Order Admin — uses OA Device Order Bot + Website\n` +
+      `📋 Management Admin — uses OA Management Bot`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (err) {
+    logger.error('haAdmins error:', err);
+  }
+};
+
+const haAdminDetail = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const u = await User.findByPk(userId);
+    if (!u) return ctx.editMessageText('❌ Admin not found.', { reply_markup: BACK_KB });
+
+    const text =
+      `👑 <b>${userName(u)}</b>\n\n` +
+      `🆔 Telegram ID: <code>${u.telegram_id}</code>\n` +
+      (u.username ? `📎 Username: @${u.username}\n` : '') +
+      `🎭 Role: ${ROLE_LABELS[u.role] || u.role}\n` +
+      `📅 Added: ${fmtDate(u.created_at)}`;
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: `${u.role === 'accounting_admin' ? '✅' : ''} Device Order`, callback_data: `ha_admin_role_${userId}_accounting_admin` },
+            { text: `${u.role === 'management_admin' ? '✅' : ''} Management`,   callback_data: `ha_admin_role_${userId}_management_admin` },
+          ],
+          [{ text: '🗑 Remove Admin Access', callback_data: `ha_admin_remove_${userId}` }],
+          [{ text: '◀️ Back to Admins',      callback_data: 'ha_admins' }],
+        ],
+      },
+    });
+  } catch (err) {
+    logger.error('haAdminDetail error:', err);
+  }
+};
+
+const haAdminAdd = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    adminSessions.set(ctx.from.id, { action: 'admin_choose_role' });
+    await ctx.editMessageText(
+      `➕ <b>Add Admin</b>\n\nWhat type of admin are you adding?`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💼 Device Order Admin', callback_data: 'ha_admin_type_accounting_admin' }],
+            [{ text: '📋 Management Admin',   callback_data: 'ha_admin_type_management_admin' }],
+            [{ text: '❌ Cancel',             callback_data: 'ha_admins' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('haAdminAdd error:', err);
+  }
+};
+
+const haAdminChooseType = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const role = ctx.match[1]; // accounting_admin | management_admin
+    adminSessions.set(ctx.from.id, { action: 'admin_add_id', role });
+    await ctx.editMessageText(
+      `➕ <b>Add ${ROLE_LABELS[role]}</b>\n\nSend their <b>Telegram ID</b> (numeric) now.\n\n` +
+      `<i>They must have started the main Owner Assistant Bot at least once, or you can enter their Telegram ID directly.</i>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'ha_admins' }]] },
+      }
+    );
+  } catch (err) {
+    logger.error('haAdminChooseType error:', err);
+  }
+};
+
+const haAdminSetRole = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const role   = ctx.match[2]; // accounting_admin | management_admin
+    await User.update({ role }, { where: { id: userId } });
+    ctx.match[1] = String(userId);
+    await haAdminDetail(ctx);
+  } catch (err) {
+    logger.error('haAdminSetRole error:', err);
+  }
+};
+
+const haAdminRemove = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Admin access removed.');
+    const userId = parseInt(ctx.match[1], 10);
+    await User.update({ role: 'unknown' }, { where: { id: userId } });
+    // Return to admin list
+    const admins = await User.findAll({
+      where: { role: { [Op.in]: ADMIN_ROLES }, deleted_at: null },
+      order: [['role', 'ASC'], ['created_at', 'ASC']],
+    });
+    const buttons = admins.map(u => [{
+      text: `${ROLE_LABELS[u.role] || u.role} — ${userName(u)}`,
+      callback_data: `ha_admin_${u.id}`,
+    }]);
+    buttons.push([{ text: '➕ Add Admin', callback_data: 'ha_admin_add' }]);
+    buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
+    await ctx.editMessageText(
+      `✅ Admin access removed.\n\n👑 <b>Admin Users</b>  (${admins.length})`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (err) {
+    logger.error('haAdminRemove error:', err);
+  }
+};
+
 // ─── New order notification ───────────────────────────────────────────────────
 
 async function notifyNewOrder(bot, adminId, order) {
@@ -595,6 +785,8 @@ module.exports = {
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haReport, haGenerateReport,
+  haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
   haHandleText,
   notifyNewOrder,
+  ADMIN_ROLES,
 };

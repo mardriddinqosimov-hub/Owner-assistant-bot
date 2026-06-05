@@ -57,9 +57,15 @@ async function showAdminPanel(ctx) {
 
 // ─── /start ───────────────────────────────────────────────────────────────────
 
+async function isMgmtAdmin(telegramId) {
+  if (String(telegramId) === String(ADMIN_ID)) return true;
+  const u = await User.findOne({ where: { telegram_id: telegramId } });
+  return u?.role === 'management_admin';
+}
+
 const mgmtStart = async (ctx) => {
   try {
-    const isAdmin = String(ctx.from.id) === String(ADMIN_ID);
+    const isAdmin = await isMgmtAdmin(ctx.from.id);
     const param   = ctx.startPayload; // 'ref_123' or empty
 
     if (isAdmin && !param) {
@@ -115,7 +121,7 @@ const mgmtHandleText = async (ctx) => {
   if (ctx.message.text?.startsWith('/')) return;
 
   const userId  = ctx.from.id;
-  const isAdmin = String(userId) === String(ADMIN_ID);
+  const isAdmin = await isMgmtAdmin(userId);
 
   if (isAdmin) return; // admin text handled separately (notes etc.)
 

@@ -131,10 +131,12 @@ function setupAccountingBot() {
 
   accountingBot = new Telegraf(process.env.ACCOUNTING_BOT_TOKEN);
 
-  // Only allow the designated admin
+  // Allow the designated admin OR any user with accounting_admin role
   accountingBot.use(async (ctx, next) => {
-    if (String(ctx.from?.id) !== String(ADMIN_ID)) return;
-    return next();
+    if (!ctx.from?.id) return;
+    if (String(ctx.from.id) === String(ADMIN_ID)) return next();
+    const u = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (u?.role === 'accounting_admin') return next();
   });
 
   accountingBot.command('start', accountingHandlers.acctStart);
@@ -203,6 +205,14 @@ function setupAdminBot() {
   adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
   adminBot.action('ha_report',                               adminBotHandlers.haReport);
   adminBot.action(/^ha_report_(week|month|all)$/,            adminBotHandlers.haGenerateReport);
+
+  // Admin users management
+  adminBot.action('ha_admins',                               adminBotHandlers.haAdmins);
+  adminBot.action(/^ha_admin_(\d+)$/,                        adminBotHandlers.haAdminDetail);
+  adminBot.action('ha_admin_add',                            adminBotHandlers.haAdminAdd);
+  adminBot.action(/^ha_admin_type_([\w]+)$/,                 adminBotHandlers.haAdminChooseType);
+  adminBot.action(/^ha_admin_role_(\d+)_([\w]+)$/,           adminBotHandlers.haAdminSetRole);
+  adminBot.action(/^ha_admin_remove_(\d+)$/,                 adminBotHandlers.haAdminRemove);
 
   adminBot.on('text', adminBotHandlers.haHandleText);
 }
