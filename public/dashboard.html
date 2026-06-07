@@ -699,10 +699,14 @@
 
     <!-- ── Referrals ─────────────────────────────────── -->
     <div class="page" id="page-referrals">
-      <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
-        <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-confirmed">—</div><div class="stat-label">✅ Confirmed</div></div>
-        <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-rewarded">—</div><div class="stat-label">💳 Rewarded</div></div>
-        <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-service">—</div><div class="stat-label">📦 Service Cover</div></div>
+      <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;flex:1">
+          <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-total">—</div><div class="stat-label">📋 Total</div></div>
+          <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-confirmed">—</div><div class="stat-label">✅ Confirmed</div></div>
+          <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-rewarded">—</div><div class="stat-label">💳 Rewarded</div></div>
+          <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-service">—</div><div class="stat-label">📦 Service Cover</div></div>
+        </div>
+        <button onclick="printRefReport()" style="background:#6366f1;color:#fff;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap;align-self:center">📄 PDF Report</button>
       </div>
 
       <div class="filter-pills" style="margin-bottom:16px">
@@ -710,6 +714,7 @@
         <span class="pill" data-rs="rewarded" onclick="setRefSection('rewarded')">💳 Rewarded</span>
         <span class="pill" data-rs="service" onclick="setRefSection('service')">📦 Service Cover</span>
         <span class="pill" data-rs="balances" onclick="setRefSection('balances')">💰 Owner Balances</span>
+        <span class="pill" data-rs="history" onclick="setRefSection('history')">📋 History</span>
       </div>
 
       <!-- Confirmed by Management — accounting acts here -->
@@ -741,6 +746,23 @@
         <table class="orders-table">
           <thead><tr><th>Owner</th><th>Company</th><th>Balance</th><th>Total Referrals</th><th>Total Earned</th><th>Card on File</th></tr></thead>
           <tbody id="ref-tbody-balances"><tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <!-- History — all referrals -->
+      <div id="ref-section-history" style="display:none">
+        <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input id="ref-history-search" type="text" placeholder="Search client, company, owner…" oninput="filterRefHistory()" style="padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;width:260px">
+          <select id="ref-history-status" onchange="filterRefHistory()" style="padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+        <table class="orders-table">
+          <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody id="ref-tbody-history"><tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1474,7 +1496,7 @@ let _currentRefSection = 'confirmed';
 
 function setRefSection(section) {
   _currentRefSection = section;
-  ['confirmed','rewarded','service','balances'].forEach(s => {
+  ['confirmed','rewarded','service','balances','history'].forEach(s => {
     document.getElementById(`ref-section-${s}`).style.display = s === section ? '' : 'none';
     const pill = document.querySelector(`[data-rs="${s}"]`);
     if (pill) pill.classList.toggle('active', s === section);
@@ -1482,19 +1504,22 @@ function setRefSection(section) {
   if (section === 'balances') loadBalances();
 }
 
+let _allRefs = [];
+
 async function loadReferrals() {
   try {
     const r = await fetch('/admin/api/referrals');
     if (!r.ok) throw new Error('Failed');
-    const refs = await r.json();
+    _allRefs = await r.json();
 
     const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
     const fmtCard = c => c ? '••••' + c.replace(/\s/g,'').slice(-4) : '—';
 
-    const confirmed = refs.filter(r => r.status === 'confirmed');
-    const rewarded  = refs.filter(r => r.status === 'paid' && r.payout_method === 'card');
-    const service   = refs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
+    const confirmed = _allRefs.filter(r => r.status === 'confirmed');
+    const rewarded  = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'card');
+    const service   = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
 
+    document.getElementById('ref-total').textContent     = _allRefs.length;
     document.getElementById('ref-confirmed').textContent = confirmed.length;
     document.getElementById('ref-rewarded').textContent  = rewarded.length;
     document.getElementById('ref-service').textContent   = service.length;
@@ -1538,6 +1563,7 @@ async function loadReferrals() {
         <td>${fmtDate(ref.paid_at)}</td>
       </tr>`).join('') : empty(6);
 
+    renderRefHistory(_allRefs);
     setRefSection(_currentRefSection);
   } catch (e) {
     ['confirmed','rewarded','service'].forEach(s => {
@@ -1545,6 +1571,101 @@ async function loadReferrals() {
       if (el) el.innerHTML = '<tr><td colspan="8" style="text-align:center;color:red">Failed to load.</td></tr>';
     });
   }
+}
+
+function statusBadge(ref) {
+  if (ref.status === 'paid' && ref.payout_method === 'card')   return '<span style="background:#1d4ed8;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">💳 Rewarded</span>';
+  if (ref.status === 'paid' && ref.payout_method === 'credit') return '<span style="background:#065f46;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">📦 Service</span>';
+  if (ref.status === 'confirmed') return '<span style="background:#166534;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">✅ Confirmed</span>';
+  return '<span style="background:#78350f;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600">⏳ Pending</span>';
+}
+
+function renderRefHistory(list) {
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
+  const sorted = [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const tbody = document.getElementById('ref-tbody-history');
+  tbody.innerHTML = sorted.length ? sorted.map(ref => `
+    <tr>
+      <td>#${ref.id}</td>
+      <td>${ref.referred_name || '—'}</td>
+      <td>${ref.referred_company || '—'}</td>
+      <td>${ref.trucks_count || '—'}</td>
+      <td>${ref.referred_phone || '—'}</td>
+      <td>${ref.owner_name || `ID ${ref.owner_id}`}</td>
+      <td><b>$${parseFloat(ref.reward || 200).toFixed(2)}</b></td>
+      <td>${statusBadge(ref)}</td>
+      <td>${fmtDate(ref.created_at)}</td>
+    </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted)">No referrals yet.</td></tr>';
+}
+
+function filterRefHistory() {
+  const q = document.getElementById('ref-history-search').value.toLowerCase();
+  const st = document.getElementById('ref-history-status').value;
+  const filtered = _allRefs.filter(r => {
+    const matchStatus = !st || r.status === st;
+    const matchQ = !q || [r.referred_name, r.referred_company, r.owner_name, r.referred_phone].some(v => (v || '').toLowerCase().includes(q));
+    return matchStatus && matchQ;
+  });
+  renderRefHistory(filtered);
+}
+
+function printRefReport() {
+  const section = _currentRefSection;
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
+  const titleMap = { confirmed: 'Confirmed by Management', rewarded: 'Rewarded (Card)', service: 'Service Cover', history: 'All Referrals History', balances: 'Owner Balances' };
+  const title = titleMap[section] || 'Referrals Report';
+  const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  let tableHtml = '';
+
+  if (section === 'history') {
+    const q = (document.getElementById('ref-history-search')?.value || '').toLowerCase();
+    const st = document.getElementById('ref-history-status')?.value || '';
+    const filtered = _allRefs.filter(r => {
+      const matchStatus = !st || r.status === st;
+      const matchQ = !q || [r.referred_name, r.referred_company, r.owner_name].some(v => (v || '').toLowerCase().includes(q));
+      return matchStatus && matchQ;
+    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Status</th><th>Date</th></tr></thead><tbody>` +
+      (filtered.length ? filtered.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${r.status === 'paid' ? (r.payout_method === 'card' ? 'Rewarded' : 'Service Cover') : r.status}</td><td>${fmtDate(r.created_at)}</td></tr>`).join('') : '<tr><td colspan="9">No entries.</td></tr>') +
+      `</tbody></table>`;
+  } else if (section === 'confirmed') {
+    const rows = _allRefs.filter(r => r.status === 'confirmed');
+    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Confirmed Date</th></tr></thead><tbody>` +
+      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.confirmed_at)}</td></tr>`).join('') : '<tr><td colspan="8">No entries.</td></tr>') +
+      `</tbody></table>`;
+  } else if (section === 'rewarded') {
+    const rows = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'card');
+    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Reward</th><th>Paid Date</th></tr></thead><tbody>` +
+      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`).join('') : '<tr><td colspan="6">No entries.</td></tr>') +
+      `</tbody></table>`;
+  } else if (section === 'service') {
+    const rows = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
+    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Reward</th><th>Applied Date</th></tr></thead><tbody>` +
+      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`).join('') : '<tr><td colspan="6">No entries.</td></tr>') +
+      `</tbody></table>`;
+  } else if (section === 'balances') {
+    const el = document.getElementById('ref-tbody-balances');
+    tableHtml = `<table><thead><tr><th>Owner</th><th>Company</th><th>Balance</th><th>Total Referrals</th><th>Total Earned</th><th>Card on File</th></tr></thead><tbody>${el ? el.innerHTML : ''}</tbody></table>`;
+  }
+
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><title>Referrals — ${title}</title><style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { color: #666; font-size: 13px; margin-bottom: 24px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #1e293b; color: #fff; padding: 8px 10px; text-align: left; }
+    td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    @media print { button { display: none; } }
+  </style></head><body>
+    <h1>Referrals — ${title}</h1>
+    <div class="sub">Generated ${now} · Owner Assistant Bot</div>
+    ${tableHtml}
+    <script>window.onload = () => { window.print(); }<\/script>
+  </body></html>`);
+  win.document.close();
 }
 
 async function refPayout(refId, method) {
