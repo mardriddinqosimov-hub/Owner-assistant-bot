@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Order = require('../models/Order');
 const Inspection = require('../models/Inspection');
+const WithdrawalRequest = require('../models/WithdrawalRequest');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
@@ -1260,6 +1261,15 @@ const refWithdrawCard = async (ctx) => {
 
     const last4   = user.card_info.replace(/\s/g, '').slice(-4);
     const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
+
+    await WithdrawalRequest.create({
+      owner_id:  user.id,
+      amount:    balance,
+      card_info: user.card_info,
+      status:    'pending',
+      source:    'balance',
+    });
+
     const { getAccountingBot } = require('../services/notificationService');
     const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
     const acctBot = getAccountingBot();

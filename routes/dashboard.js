@@ -3,9 +3,10 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const { Op } = require('sequelize');
-const Order    = require('../models/Order');
-const User     = require('../models/User');
-const Referral = require('../models/Referral');
+const Order              = require('../models/Order');
+const User               = require('../models/User');
+const Referral           = require('../models/Referral');
+const WithdrawalRequest  = require('../models/WithdrawalRequest');
 const { getSetting, setSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 
@@ -209,6 +210,72 @@ router.get('/api/referral-balances', async (req, res) => {
       .filter(u => u.total_refs > 0 || u.balance > 0);
 
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Keep referral reward in owner balance ─────────────────────────────────────
+router.post('/api/referral-keep', express.json(), async (req, res) => {
+  try {
+    const { refId } = req.body;
+    if (!refId) return res.status(400).json({ error: 'Missing refId' });
+
+    const ref = await Referral.findByPk(refId);
+    if (!ref) return res.status(404).json({ error: 'Referral not found' });
+    if (ref.status === 'paid') return res.status(400).json({ error: 'Already processed' });
+
+    await ref.update({ status: 'paid', payout_method: 'balance', paid_at: new Date() });
+
+    const owner = await User.findByPk(ref.owner_id);
+    let newBal = parseFloat(ref.reward || 200);
+    if (owner) {
+      newBal = parseFloat(owner.referral_balance || 0) + parseFloat(ref.reward || 200);
+      await owner.update({ referral_balance: newBal.toFixed(2) });
+      if (_bot) {
+        try {
+          await _bot.telegram.sendMessage(
+            owner.telegram_id,
+            `💰 <b>Reward Added to Balance!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} for referral #${ref.id} (${ref.referred_company || ref.referred_name}) has been added to your balance.\n\nNew balance: <b>$${newBal.toFixed(2)}</b>\n\nYou can withdraw it anytime from the Referrals menu.`,
+            { parse_mode: 'HTML' }
+          );
+        } catch {}
+      }
+    }
+
+    res.json({ ok: true, newBalance: newBal.toFixed(2) });
+  } catch (err) {
+    logger.error('Referral keep error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Withdrawal requests list ──────────────────────────────────────────────────
+router.get('/api/withdrawal-requests', async (req, res) => {
+  try {
+    const requests = await WithdrawalRequest.findAll({ order: [['created_at', 'DESC']] });
+    const owners = await User.findAll({ attributes: ['id', 'first_name', 'last_name', 'username', 'owner_name', 'company_name'] });
+    const ownerMap = Object.fromEntries(owners.map(u => [u.id, {
+      name: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.owner_name || null,
+      company: u.company_name || '—',
+    }]));
+    res.json(requests.map(r => ({
+      ...r.dataValues,
+      owner_name:    ownerMap[r.owner_id]?.name || `ID ${r.owner_id}`,
+      owner_company: ownerMap[r.owner_id]?.company || '—',
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Mark withdrawal request as processed ─────────────────────────────────────
+router.post('/api/withdrawal-done/:id', async (req, res) => {
+  try {
+    const wr = await WithdrawalRequest.findByPk(req.params.id);
+    if (!wr) return res.status(404).json({ error: 'Not found' });
+    await wr.update({ status: 'processed', processed_at: new Date() });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

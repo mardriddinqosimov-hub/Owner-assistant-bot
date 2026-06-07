@@ -1,6 +1,7 @@
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Order = require('../models/Order');
+const WithdrawalRequest = require('../models/WithdrawalRequest');
 const notifService = require('../services/notificationService');
 const { notifyHeadAdmin } = notifService;
 const {
@@ -164,6 +165,15 @@ const handleText = async (ctx) => {
 
     if (purpose === 'withdraw' && user) {
       const balance = parseFloat(user.referral_balance || 0);
+      if (balance > 0) {
+        await WithdrawalRequest.create({
+          owner_id:  user.id,
+          amount:    balance,
+          card_info: cardInfo,
+          status:    'pending',
+          source:    'balance',
+        });
+      }
       const acctBot = notifService.getAccountingBot();
       const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
       if (acctBot && balance > 0) {
