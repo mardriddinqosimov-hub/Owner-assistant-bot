@@ -700,7 +700,6 @@
     <!-- ── Referrals ─────────────────────────────────── -->
     <div class="page" id="page-referrals">
       <div style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap">
-        <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-pending">—</div><div class="stat-label">⏳ Pending</div></div>
         <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-confirmed">—</div><div class="stat-label">✅ Confirmed</div></div>
         <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-rewarded">—</div><div class="stat-label">💳 Rewarded</div></div>
         <div class="stat-card" style="flex:1;min-width:120px"><div class="stat-value" id="ref-service">—</div><div class="stat-label">📦 Service Cover</div></div>
@@ -710,7 +709,6 @@
         <span class="pill active" data-rs="confirmed" onclick="setRefSection('confirmed')">✅ Confirmed by Management</span>
         <span class="pill" data-rs="rewarded" onclick="setRefSection('rewarded')">💳 Rewarded</span>
         <span class="pill" data-rs="service" onclick="setRefSection('service')">📦 Service Cover</span>
-        <span class="pill" data-rs="pending" onclick="setRefSection('pending')">⏳ Pending</span>
         <span class="pill" data-rs="balances" onclick="setRefSection('balances')">💰 Owner Balances</span>
       </div>
 
@@ -735,14 +733,6 @@
         <table class="orders-table">
           <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Credit Amount</th><th>Applied Date</th></tr></thead>
           <tbody id="ref-tbody-service"><tr><td colspan="6" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
-        </table>
-      </div>
-
-      <!-- Pending -->
-      <div id="ref-section-pending" style="display:none">
-        <table class="orders-table">
-          <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Submitted</th></tr></thead>
-          <tbody id="ref-tbody-pending"><tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr></tbody>
         </table>
       </div>
 
@@ -1484,7 +1474,7 @@ let _currentRefSection = 'confirmed';
 
 function setRefSection(section) {
   _currentRefSection = section;
-  ['confirmed','rewarded','service','pending','balances'].forEach(s => {
+  ['confirmed','rewarded','service','balances'].forEach(s => {
     document.getElementById(`ref-section-${s}`).style.display = s === section ? '' : 'none';
     const pill = document.querySelector(`[data-rs="${s}"]`);
     if (pill) pill.classList.toggle('active', s === section);
@@ -1501,12 +1491,10 @@ async function loadReferrals() {
     const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
     const fmtCard = c => c ? '••••' + c.replace(/\s/g,'').slice(-4) : '—';
 
-    const pending   = refs.filter(r => r.status === 'pending');
     const confirmed = refs.filter(r => r.status === 'confirmed');
     const rewarded  = refs.filter(r => r.status === 'paid' && r.payout_method === 'card');
     const service   = refs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
 
-    document.getElementById('ref-pending').textContent   = pending.length;
     document.getElementById('ref-confirmed').textContent = confirmed.length;
     document.getElementById('ref-rewarded').textContent  = rewarded.length;
     document.getElementById('ref-service').textContent   = service.length;
@@ -1550,20 +1538,9 @@ async function loadReferrals() {
         <td>${fmtDate(ref.paid_at)}</td>
       </tr>`).join('') : empty(6);
 
-    document.getElementById('ref-tbody-pending').innerHTML = pending.length ? pending.map(ref => `
-      <tr>
-        <td>#${ref.id}</td>
-        <td>${ref.referred_name || '—'}</td>
-        <td>${ref.referred_company || '—'}</td>
-        <td>${ref.trucks_count || '—'}</td>
-        <td>${ref.referred_phone || '—'}</td>
-        <td>${ref.owner_name || `ID ${ref.owner_id}`}</td>
-        <td>${fmtDate(ref.created_at)}</td>
-      </tr>`).join('') : empty(7);
-
     setRefSection(_currentRefSection);
   } catch (e) {
-    ['confirmed','rewarded','service','pending'].forEach(s => {
+    ['confirmed','rewarded','service'].forEach(s => {
       const el = document.getElementById(`ref-tbody-${s}`);
       if (el) el.innerHTML = '<tr><td colspan="8" style="text-align:center;color:red">Failed to load.</td></tr>';
     });
