@@ -543,12 +543,12 @@ const acctReferralDetail = async (ctx) => {
 
 const acctRefPayout = async (ctx) => {
   try {
-    await ctx.answerCbQuery();
     const method = ctx.match[1]; // 'card' or 'credit'
     const refId  = parseInt(ctx.match[2], 10);
 
     const ref   = await Referral.findByPk(refId);
     if (!ref || ref.status === 'paid') return ctx.answerCbQuery('Already processed.');
+    await ctx.answerCbQuery();
 
     const owner = await User.findByPk(ref.owner_id);
     const label = method === 'card' ? 'Card Payment' : 'Order Credit';

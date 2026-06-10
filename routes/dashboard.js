@@ -50,6 +50,21 @@ router.get('/api/stats', async (req, res) => {
   }
 });
 
+router.get('/api/quick-stats', async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const [activeOrders, todayOrders, pendingReferrals] = await Promise.all([
+      Order.count({ where: { status: 'active' } }),
+      Order.count({ where: { created_at: { [Op.gte]: startOfDay } } }),
+      Referral.count({ where: { status: 'confirmed' } }),
+    ]);
+    res.json({ activeOrders, todayOrders, pendingReferrals });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed' });
+  }
+});
+
 router.get('/api/orders', async (req, res) => {
   try {
     const { status } = req.query;
@@ -155,6 +170,7 @@ router.post('/api/referral-payout', express.json(), async (req, res) => {
     const ref = await Referral.findByPk(refId);
     if (!ref) return res.status(404).json({ error: 'Referral not found' });
     if (ref.status === 'paid') return res.status(400).json({ error: 'Already processed' });
+    if (ref.status !== 'confirmed') return res.status(400).json({ error: 'Referral must be confirmed before payout' });
 
     await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
 
@@ -224,26 +240,24 @@ router.post('/api/referral-keep', express.json(), async (req, res) => {
     const ref = await Referral.findByPk(refId);
     if (!ref) return res.status(404).json({ error: 'Referral not found' });
     if (ref.status === 'paid') return res.status(400).json({ error: 'Already processed' });
+    if (ref.status !== 'confirmed') return res.status(400).json({ error: 'Referral must be confirmed before keeping balance' });
 
     await ref.update({ status: 'paid', payout_method: 'balance', paid_at: new Date() });
 
+    // Balance was already added when management confirmed — just notify owner
     const owner = await User.findByPk(ref.owner_id);
-    let newBal = parseFloat(ref.reward || 200);
-    if (owner) {
-      newBal = parseFloat(owner.referral_balance || 0) + parseFloat(ref.reward || 200);
-      await owner.update({ referral_balance: newBal.toFixed(2) });
-      if (_bot) {
-        try {
-          await _bot.telegram.sendMessage(
-            owner.telegram_id,
-            `💰 <b>Reward Added to Balance!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} for referral #${ref.id} (${ref.referred_company || ref.referred_name}) has been added to your balance.\n\nNew balance: <b>$${newBal.toFixed(2)}</b>\n\nYou can withdraw it anytime from the Referrals menu.`,
-            { parse_mode: 'HTML' }
-          );
-        } catch {}
-      }
+    const currentBal = parseFloat(owner?.referral_balance || 0);
+    if (owner && _bot) {
+      try {
+        await _bot.telegram.sendMessage(
+          owner.telegram_id,
+          `💰 <b>Reward Kept in Balance!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} for referral #${ref.id} (${ref.referred_company || ref.referred_name}) is in your balance.\n\nCurrent balance: <b>$${currentBal.toFixed(2)}</b>\n\nYou can withdraw it anytime from the Referrals menu.`,
+          { parse_mode: 'HTML' }
+        );
+      } catch {}
     }
 
-    res.json({ ok: true, newBalance: newBal.toFixed(2) });
+    res.json({ ok: true, newBalance: currentBal.toFixed(2) });
   } catch (err) {
     logger.error('Referral keep error:', err);
     res.status(500).json({ error: err.message });
@@ -352,6 +366,32 @@ router.post('/api/orders/:id/deliver', async (req, res) => {
   } catch (err) {
     logger.error('Deliver order error:', err);
     res.status(500).json({ error: 'Failed' });
+  }
+});
+
+// ── Redo order (duplicate as new active order) ────────────────────────────────
+router.post('/api/orders/:id/redo', async (req, res) => {
+  try {
+    const original = await Order.findByPk(req.params.id);
+    if (!original) return res.status(404).json({ error: 'Order not found' });
+    const newOrder = await Order.create({
+      user_id:      original.user_id,
+      owner_name:   original.owner_name,
+      company_name: original.company_name,
+      email:        original.email,
+      phone:        original.phone,
+      location:     original.location,
+      items:        original.items,
+      qty:          original.qty,
+      shipping:     original.shipping,
+      total:        original.total,
+      status:       'active',
+      created_at:   new Date(),
+    });
+    res.json({ ok: true, id: newOrder.id });
+  } catch (err) {
+    logger.error('Redo order error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -11,7 +11,7 @@ const Referral = sequelize.define('Referral', {
   trucks_count:         { type: DataTypes.INTEGER, allowNull: true },
   status:               { type: DataTypes.STRING, defaultValue: 'pending' }, // pending | confirmed | rejected | paid
   reward:               { type: DataTypes.DECIMAL(10, 2), defaultValue: 200.00 },
-  payout_method:        { type: DataTypes.STRING, allowNull: true }, // card | credit
+  payout_method:        { type: DataTypes.STRING, allowNull: true }, // card | credit | balance
   notes:                { type: DataTypes.TEXT, allowNull: true },
   created_at:           { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   confirmed_at:         { type: DataTypes.DATE, allowNull: true },

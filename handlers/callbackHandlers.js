@@ -597,7 +597,6 @@ const fsSelectShipping = async (ctx) => {
     session.location        = user?.delivery_address || '';
     session.step = 'confirmation';
 
-    await ctx.answerCbQuery();
     await showConfirmation(ctx, session);
   } catch (err) {
     logger.error('fsSelectShipping error:', err);
@@ -767,7 +766,6 @@ const cuSelectShipping = async (ctx) => {
     session.location        = user?.delivery_address || '';
     session.step = 'confirmation';
 
-    await ctx.answerCbQuery();
     await showConfirmation(ctx, session);
   } catch (err) {
     logger.error('cuSelectShipping error:', err);

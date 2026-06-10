@@ -137,6 +137,9 @@ function setupAccountingBot() {
     if (String(ctx.from.id) === String(ADMIN_ID)) return next();
     const u = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (u?.role === 'accounting_admin') return next();
+    if (ctx.message || ctx.callbackQuery) {
+      try { await ctx.reply('⛔ Access denied. This bot is for accounting admins only.'); } catch {}
+    }
   });
 
   accountingBot.command('start', accountingHandlers.acctStart);

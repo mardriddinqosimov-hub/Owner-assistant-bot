@@ -297,10 +297,10 @@ const mgmtRefDetail = async (ctx) => {
 
 const mgmtConfirm = async (ctx) => {
   try {
-    await ctx.answerCbQuery('Confirmed!');
     const refId = parseInt(ctx.match[1], 10);
     const ref   = await Referral.findByPk(refId);
     if (!ref || ref.status !== 'pending') return ctx.answerCbQuery('Already processed.');
+    await ctx.answerCbQuery('Confirmed!');
 
     await ref.update({ status: 'confirmed', confirmed_at: new Date() });
 
@@ -385,10 +385,10 @@ const mgmtConfirm = async (ctx) => {
 
 const mgmtReject = async (ctx) => {
   try {
-    await ctx.answerCbQuery('Rejected.');
     const refId = parseInt(ctx.match[1], 10);
     const ref   = await Referral.findByPk(refId);
-    if (!ref) return;
+    if (!ref || ref.status !== 'pending') return ctx.answerCbQuery('Already processed.');
+    await ctx.answerCbQuery('Rejected.');
 
     await ref.update({ status: 'rejected' });
 

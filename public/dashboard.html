@@ -600,6 +600,7 @@
 
     <!-- ── Active Orders ────────────────────────────── -->
     <div class="page active" id="page-active-orders">
+      <div id="quick-stats-bar" style="display:none;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 18px;margin-bottom:18px;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px"></div>
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-top">
@@ -637,6 +638,13 @@
         <button class="filter-tab active" id="ftab-all"       onclick="setFilter('all')">       All       <span class="cnt" id="ftc-all">0</span></button>
         <button class="filter-tab"        id="ftab-active"    onclick="setFilter('active')">    Active    <span class="cnt" id="ftc-active">0</span></button>
         <button class="filter-tab"        id="ftab-delivered" onclick="setFilter('delivered')"> Delivered <span class="cnt" id="ftc-delivered">0</span></button>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--muted)">Date:</span>
+          <input type="date" id="order-date-from" onchange="renderOrdersTable()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+          <span style="color:var(--muted);font-size:12px">–</span>
+          <input type="date" id="order-date-to" onchange="renderOrdersTable()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+          <button onclick="clearOrderDates()" style="background:var(--hover);border:1px solid var(--border);color:var(--subtle);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer">Clear</button>
+        </div>
       </div>
 
       <div class="table-card">
@@ -654,6 +662,14 @@
 
     <!-- ── Order History ────────────────────────────── -->
     <div class="page" id="page-order-history">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <input type="text" id="history-search" placeholder="Search name, company, #ID…" oninput="renderHistoryFiltered()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 12px;font-size:13px;outline:none;width:220px">
+        <span style="font-size:12px;color:var(--muted);margin-left:4px">Date:</span>
+        <input type="date" id="history-date-from" onchange="renderHistoryFiltered()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+        <span style="color:var(--muted);font-size:12px">–</span>
+        <input type="date" id="history-date-to" onchange="renderHistoryFiltered()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+        <button onclick="clearHistoryFilters()" style="background:var(--hover);border:1px solid var(--border);color:var(--subtle);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer">Clear</button>
+      </div>
       <div class="table-card">
         <div id="history-container"><div class="spinner"></div></div>
       </div>
@@ -766,13 +782,18 @@
       <!-- History — all referrals -->
       <div id="ref-section-history" style="display:none">
         <div style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input id="ref-history-search" type="text" placeholder="Search client, company, owner…" oninput="filterRefHistory()" style="padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;width:260px">
+          <input id="ref-history-search" type="text" placeholder="Search client, company, owner…" oninput="filterRefHistory()" style="padding:7px 12px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;width:220px">
           <select id="ref-history-status" onchange="filterRefHistory()" style="padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px">
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="confirmed">Confirmed</option>
             <option value="paid">Paid</option>
           </select>
+          <span style="font-size:12px;color:var(--muted)">Date:</span>
+          <input type="date" id="ref-date-from" onchange="filterRefHistory()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+          <span style="color:var(--muted);font-size:12px">–</span>
+          <input type="date" id="ref-date-to" onchange="filterRefHistory()" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:5px 9px;font-size:12px;outline:none">
+          <button onclick="clearRefHistoryFilters()" style="background:var(--hover);border:1px solid var(--border);color:var(--subtle);border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer">Clear</button>
         </div>
         <table class="orders-table">
           <thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Status</th><th>Date</th></tr></thead>
@@ -1106,15 +1127,25 @@ function setFilter(f) {
 function onSearch() { renderOrdersTable(); }
 
 function renderOrdersTable() {
-  const q = (document.getElementById('search-input').value || '').toLowerCase();
+  const q    = (document.getElementById('search-input').value || '').toLowerCase();
+  const from = document.getElementById('order-date-from').value;
+  const to   = document.getElementById('order-date-to').value;
   let orders = allOrders;
   if (currentFilter !== 'all') orders = orders.filter(o => o.status === currentFilter);
-  if (q) orders = orders.filter(o =>
+  if (q)    orders = orders.filter(o =>
     (o.owner_name||'').toLowerCase().includes(q) ||
     (o.company_name||'').toLowerCase().includes(q) ||
     String(o.id).includes(q)
   );
+  if (from) orders = orders.filter(o => new Date(o.created_at) >= new Date(from));
+  if (to)   orders = orders.filter(o => new Date(o.created_at) <= new Date(to + 'T23:59:59'));
   renderTable(orders, 'orders-container', false);
+}
+
+function clearOrderDates() {
+  document.getElementById('order-date-from').value = '';
+  document.getElementById('order-date-to').value   = '';
+  renderOrdersTable();
 }
 
 /* ── History ───────────────────────────────────────────── */
@@ -1123,10 +1154,52 @@ async function loadHistory() {
   try {
     const r = await fetch('/admin/api/orders?status=delivered');
     historyOrders = await r.json();
-    renderTable(historyOrders, 'history-container', true);
+    renderHistoryFiltered();
   } catch {
     document.getElementById('history-container').innerHTML =
       '<div class="empty"><div class="icon">⚠️</div><p>Failed to load history</p></div>';
+  }
+}
+
+function renderHistoryFiltered() {
+  const q    = (document.getElementById('history-search')?.value || '').toLowerCase();
+  const from = document.getElementById('history-date-from')?.value;
+  const to   = document.getElementById('history-date-to')?.value;
+  let orders = historyOrders;
+  if (q)    orders = orders.filter(o =>
+    (o.owner_name||'').toLowerCase().includes(q) ||
+    (o.company_name||'').toLowerCase().includes(q) ||
+    String(o.id).includes(q)
+  );
+  if (from) orders = orders.filter(o => new Date(o.created_at) >= new Date(from));
+  if (to)   orders = orders.filter(o => new Date(o.created_at) <= new Date(to + 'T23:59:59'));
+  renderTable(orders, 'history-container', true);
+}
+
+function clearHistoryFilters() {
+  const s = document.getElementById('history-search');
+  const f = document.getElementById('history-date-from');
+  const t = document.getElementById('history-date-to');
+  if (s) s.value = '';
+  if (f) f.value = '';
+  if (t) t.value = '';
+  renderHistoryFiltered();
+}
+
+async function redoOrder(orderId, btn) {
+  if (!confirm(`Create a new active order from Order #${orderId} with the same items and customer info?`)) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Creating...';
+  try {
+    const r = await fetch(`/admin/api/orders/${orderId}/redo`, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed');
+    alert(`✅ New Order #${data.id} created! Switching to Active Orders.`);
+    showPage('active-orders');
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '♻️ Redo Order';
+    alert('Failed: ' + e.message);
   }
 }
 
@@ -1202,6 +1275,9 @@ function renderTable(orders, containerId, isHistory) {
                   : `<button class="btn btn-gray" disabled>🧾 No payment screenshot</button>`}
                 ${o.status === 'active'
                   ? `<button class="btn btn-green" onclick="event.stopPropagation();markDelivered(${o.id},this)">✓ Mark as Delivered</button>`
+                  : ''}
+                ${isHistory
+                  ? `<button class="btn btn-gray" onclick="event.stopPropagation();redoOrder(${o.id},this)">♻️ Redo Order</button>`
                   : ''}
               </div>
             </div>
@@ -1610,14 +1686,28 @@ function renderRefHistory(list) {
 }
 
 function filterRefHistory() {
-  const q = document.getElementById('ref-history-search').value.toLowerCase();
-  const st = document.getElementById('ref-history-status').value;
+  const q    = document.getElementById('ref-history-search').value.toLowerCase();
+  const st   = document.getElementById('ref-history-status').value;
+  const from = document.getElementById('ref-date-from')?.value;
+  const to   = document.getElementById('ref-date-to')?.value;
   const filtered = _allRefs.filter(r => {
     const matchStatus = !st || r.status === st;
     const matchQ = !q || [r.referred_name, r.referred_company, r.owner_name, r.referred_phone].some(v => (v || '').toLowerCase().includes(q));
-    return matchStatus && matchQ;
+    const matchFrom = !from || new Date(r.created_at) >= new Date(from);
+    const matchTo   = !to   || new Date(r.created_at) <= new Date(to + 'T23:59:59');
+    return matchStatus && matchQ && matchFrom && matchTo;
   });
   renderRefHistory(filtered);
+}
+
+function clearRefHistoryFilters() {
+  document.getElementById('ref-history-search').value = '';
+  document.getElementById('ref-history-status').value = '';
+  const f = document.getElementById('ref-date-from');
+  const t = document.getElementById('ref-date-to');
+  if (f) f.value = '';
+  if (t) t.value = '';
+  filterRefHistory();
 }
 
 function printRefReport() {
@@ -1969,9 +2059,28 @@ function refresh() {
   if (btn) { btn.textContent = '✓ Done'; setTimeout(() => btn.textContent = '↻ Refresh', 1200); }
 }
 
+/* ── Quick Stats ───────────────────────────────────────── */
+async function loadQuickStats() {
+  try {
+    const r = await fetch('/admin/api/quick-stats');
+    if (!r.ok) return;
+    const d = await r.json();
+    const bar = document.getElementById('quick-stats-bar');
+    const parts = [];
+    if (d.todayOrders > 0)     parts.push(`📅 <b>${d.todayOrders}</b> new order${d.todayOrders !== 1 ? 's' : ''} today`);
+    if (d.activeOrders > 0)    parts.push(`📦 <b>${d.activeOrders}</b> active`);
+    if (d.pendingReferrals > 0) parts.push(`💰 <b>${d.pendingReferrals}</b> referral${d.pendingReferrals !== 1 ? 's' : ''} awaiting payout`);
+    if (parts.length > 0) {
+      bar.innerHTML = parts.join('<span style="color:var(--border);margin:0 6px">|</span>');
+      bar.style.display = 'flex';
+    }
+  } catch {}
+}
+
 /* ── Init ──────────────────────────────────────────────── */
 startClock();
 loadAllOrders();
+loadQuickStats();
 pollWithdrawals();
 setInterval(pollWithdrawals, 30000);
 </script>
