@@ -989,6 +989,7 @@ const orderDetail = async (ctx) => {
       reply_markup: {
         inline_keyboard: [
           ...(isUrl ? [[{ text: '🔗 Track Package', url: order.tracking_link }]] : []),
+          ...(order.status === 'delivered' ? [[{ text: '♻️ Repeat Order', callback_data: `order_redo_${order.id}` }]] : []),
           [{ text: '◀️ Back', callback_data: order.status === 'active' ? 'order_active' : 'order_history_0' }],
         ],
       },
@@ -996,6 +997,49 @@ const orderDetail = async (ctx) => {
   } catch (err) {
     logger.error('orderDetail error:', err);
     await ctx.reply('❌ Error loading order.');
+  }
+};
+
+const orderRedo = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const orderId = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const original = await Order.findOne({ where: { id: orderId, user_id: user.id } });
+    if (!original) return ctx.editMessageText('❌ Order not found.');
+
+    const newOrder = await Order.create({
+      user_id:      original.user_id,
+      owner_name:   original.owner_name,
+      company_name: original.company_name,
+      email:        original.email,
+      phone:        original.phone,
+      location:     original.location,
+      items:        original.items,
+      qty:          original.qty,
+      shipping:     original.shipping,
+      total:        original.total,
+      status:       'active',
+      created_at:   new Date(),
+    });
+
+    await ctx.editMessageText(
+      `✅ <b>Order #${newOrder.id} created!</b>\n\nRepeated from Order #${original.id}.\nSame items, customer info, and shipping.\n\nOur team will process it shortly.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📋 View Active Orders', callback_data: 'order_active' }],
+            [{ text: '◀️ Back to History', callback_data: 'order_history_0' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('orderRedo error:', err);
+    await ctx.reply('❌ Error repeating order.');
   }
 };
 
@@ -1404,7 +1448,7 @@ module.exports = {
   orderFullSet, fsSelectCable, fsSelectCount, fsSelectShipping,
   orderCustom, cuSelectItem, cuSetQty, cuShowShipping, cuSelectShipping,
   orderConfirm, orderEdit, orderCancel,
-  orderActive, orderHistory, orderDetail,
+  orderActive, orderHistory, orderDetail, orderRedo,
   dotMenu, dotDetail,
   mainMenu, changeTeam, helpMenu,
   referralMenu, referralHistory,

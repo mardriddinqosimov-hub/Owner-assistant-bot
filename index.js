@@ -92,6 +92,7 @@ bot.action('order_cancel', callbackHandlers.orderCancel);
 bot.action('order_active', callbackHandlers.orderActive);
 bot.action(/^order_history_(\d+)$/, callbackHandlers.orderHistory);
 bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
+bot.action(/^order_redo_(\d+)$/, callbackHandlers.orderRedo);
 
 // ─── Referral ─────────────────────────────────────────────────────────────────
 bot.action('referral_menu',                  callbackHandlers.referralMenu);
