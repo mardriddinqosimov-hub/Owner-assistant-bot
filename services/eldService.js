@@ -37,14 +37,23 @@ async function fetchDriverStatus(companyKey) {
 
 async function fetchVehicleStatus(companyKey) {
   const client = makeClient(companyKey);
-  try {
-    const res = await client.get('/latest-vehicle-status', { params: { limit: 1000 } });
-    const data = res.data?.data;
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    logger.warn('fetchVehicleStatus failed:', err.response?.data?.description || err.message);
-    return [];
+  const endpoints = [
+    { url: '/latest-vehicle-status', params: { limit: 1000 } },
+    { url: '/vehicles',              params: { limit: 1000 } },
+    { url: '/vehicle-tracking',      params: { limit: 1000 } },
+  ];
+  for (const { url, params } of endpoints) {
+    try {
+      const res = await client.get(url, { params });
+      const raw = res.data?.data ?? res.data?.vehicles ?? res.data;
+      if (Array.isArray(raw) && raw.length > 0) {
+        logger.info(`fetchVehicleStatus: got ${raw.length} records from ${url}`);
+        return raw;
+      }
+    } catch {}
   }
+  logger.warn('fetchVehicleStatus: all endpoints returned empty');
+  return [];
 }
 
 async function fetchCompanyInfo(companyKey) {
