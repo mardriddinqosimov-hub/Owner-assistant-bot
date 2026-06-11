@@ -230,19 +230,23 @@ const driverRefresh = async (ctx) => {
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
     const v  = vehicleRaw.find(v => String(v.driver_id) === String(driverId)) || {};
 
+    logger.info(`driverRefresh vehicle raw for ${driverId}:`, JSON.stringify(v).slice(0, 500));
+
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {
       const STATUS_LABELS = {
         'DS_D': 'DRIVING', 'DS_ON': 'ON DUTY', 'DS_OFF': 'OFF DUTY',
         'DS_SB': 'SLEEPER BERTH', 'DS_PC': 'PERSONAL CONVEYANCE', 'DS_YM': 'YARD MOVE',
       };
+      const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude;
+      const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude;
       await driver.update({
         current_status:  STATUS_LABELS[st.current_status] || st.current_status || driver.current_status,
-        speed:           v.speed           ?? driver.speed,
-        latitude:        v.lat             ? parseFloat(v.lat) : driver.latitude,
-        longitude:       v.lon             ? parseFloat(v.lon) : driver.longitude,
-        truck_number:    v.number           || driver.truck_number,
-        location_string: v.calc_location   || driver.location_string,
+        speed:           v.speed ?? v.current_speed ?? v.vehicle_speed ?? driver.speed,
+        latitude:        rawLat  ? parseFloat(rawLat) : driver.latitude,
+        longitude:       rawLon  ? parseFloat(rawLon) : driver.longitude,
+        truck_number:    v.number || v.truck_number || v.vehicle_number || driver.truck_number,
+        location_string: v.calc_location ?? v.location ?? v.address ?? driver.location_string,
         drive_remaining: st.drive          ?? driver.drive_remaining,
         shift_remaining: st.shift          ?? driver.shift_remaining,
         break_remaining: st.break          ?? driver.break_remaining,
