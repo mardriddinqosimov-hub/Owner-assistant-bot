@@ -50,7 +50,7 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
     `👤 <b>${driver.driver_name}</b>\n` +
     (driver.truck_number ? `<i>Truck #${driver.truck_number}</i>\n\n` : '\n') +
     `📋 Status: ${driver.current_status || 'Unknown'}\n` +
-    (driver.speed != null ? `🚗 Speed: ${driver.speed} mph\n` : '') +
+    (driver.speed != null ? `🚗 Speed: ${driver.speed} mph\n` : `🚗 Speed: No data\n`) +
     `\n⏰ <b>HOS Clocks</b>\n` +
     `Drive time: <b>${formatSeconds(driver.drive_remaining)}</b>\n` +
     `Shift time: <b>${formatSeconds(driver.shift_remaining)}</b>\n` +
@@ -63,7 +63,7 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
       [{ text: '🔄 Refresh', callback_data: `driver_refresh_${driverId}` }],
       ...(driver.latitude && driver.longitude
         ? [[{ text: '📍 Location', callback_data: `driver_location_${driverId}` }]]
-        : []),
+        : [[{ text: '📍 Location: No GPS data', callback_data: 'noop' }]]),
       [{ text: '◀️ Back', callback_data: 'drivers_list' }],
     ],
   };
@@ -229,24 +229,12 @@ const driverRefresh = async (ctx) => {
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
 
-    // Log vehicle array structure so we can identify correct field names
-    if (vehicleRaw.length > 0) {
-      logger.info(`driverRefresh vehicleRaw[0] keys:`, Object.keys(vehicleRaw[0]));
-      logger.info(`driverRefresh vehicleRaw[0] sample:`, JSON.stringify(vehicleRaw[0]).slice(0, 600));
-    }
-
-    // Try matching vehicle by driver_id, assigned_driver_id, or driver name via st
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
       String(r.assigned_driver_id) === String(driverId) ||
       String(r.current_driver_id) === String(driverId) ||
-      (st.vehicle_id && String(r.vehicle_id) === String(st.vehicle_id)) ||
-      (st.vehicle_id && String(r.id) === String(st.vehicle_id))
+      (st.vehicle_id && String(r.vehicle_id) === String(st.vehicle_id))
     ) || {};
-
-    logger.info(`driverRefresh driverId=${driverId} st.vehicle_id=${st.vehicle_id} vehicleRaw.length=${vehicleRaw.length}`);
-    logger.info(`driverRefresh vehicleRaw driver_ids:`, vehicleRaw.map(r => r.driver_id).join(', '));
-    logger.info(`driverRefresh matched vehicle:`, JSON.stringify(v).slice(0, 300));
 
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {
@@ -259,7 +247,6 @@ const driverRefresh = async (ctx) => {
       const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
       const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
       const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
-      logger.info(`driverRefresh saving: speed=${rawSpeed} lat=${rawLat} lon=${rawLon} truck=${rawTruck} loc=${rawLocation}`);
       await driver.update({
         current_status:  STATUS_LABELS[st.current_status] || st.current_status || driver.current_status,
         speed:           rawSpeed ?? driver.speed,

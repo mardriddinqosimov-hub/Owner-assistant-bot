@@ -63,6 +63,7 @@ bot.command('orders', commandHandlers.orders);
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
 bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
 bot.action(/^driver_location_(.+)$/, callbackHandlers.driverLocation);
+bot.action('noop', ctx => ctx.answerCbQuery());
 bot.action('drivers_list', callbackHandlers.driversList);
 bot.action('drivers_list_refresh', callbackHandlers.driversListRefresh);
 bot.action(/^drivers_cat_(D|ON|SB|OFF)$/, callbackHandlers.driversCatShow);
