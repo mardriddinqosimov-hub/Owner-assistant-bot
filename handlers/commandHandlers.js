@@ -59,20 +59,24 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       || (st.vehicle_id ? vehicleByVehicleId[String(st.vehicle_id)] : null)
       || {};
 
-    const rawLat = v.lat ?? v.latitude ?? v.gps_lat;
-    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon;
+    // Fallback to status record fields if vehicle record is empty
+    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? st.lat ?? st.latitude;
+    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? st.lon ?? st.lng ?? st.longitude;
+    const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed;
+    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number;
+    const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
 
     const driverData = {
       user_id:          user.id,
       driver_id:        dId,
       driver_name:      name,
-      truck_number:     v.number || v.truck_number || v.vehicle_number || d.truck_number || null,
+      truck_number:     rawTruck || null,
       eld_provider:     user.company_name || 'ELD',
       current_status:   mapStatus(st.current_status),
-      speed:            v.speed ?? v.current_speed ?? null,
+      speed:            rawSpeed ?? null,
       latitude:         rawLat ? parseFloat(rawLat) : null,
       longitude:        rawLon ? parseFloat(rawLon) : null,
-      location_string:  v.calc_location ?? v.location ?? v.address ?? null,
+      location_string:  rawLocation ?? null,
       drive_remaining:  st.drive  ?? null,
       shift_remaining:  st.shift  ?? null,
       break_remaining:  st.break  ?? null,

@@ -252,15 +252,18 @@ const driverRefresh = async (ctx) => {
         'DS_D': 'DRIVING', 'DS_ON': 'ON DUTY', 'DS_OFF': 'OFF DUTY',
         'DS_SB': 'SLEEPER BERTH', 'DS_PC': 'PERSONAL CONVEYANCE', 'DS_YM': 'YARD MOVE',
       };
-      const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude;
-      const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude;
+      const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude ?? st.lat ?? st.latitude;
+      const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude ?? st.lon ?? st.lng ?? st.longitude;
+      const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
+      const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
+      const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
       await driver.update({
         current_status:  STATUS_LABELS[st.current_status] || st.current_status || driver.current_status,
-        speed:           v.speed ?? v.current_speed ?? v.vehicle_speed ?? driver.speed,
+        speed:           rawSpeed ?? driver.speed,
         latitude:        rawLat  ? parseFloat(rawLat) : driver.latitude,
         longitude:       rawLon  ? parseFloat(rawLon) : driver.longitude,
-        truck_number:    v.number || v.truck_number || v.vehicle_number || driver.truck_number,
-        location_string: v.calc_location ?? v.location ?? v.address ?? driver.location_string,
+        truck_number:    rawTruck || driver.truck_number,
+        location_string: rawLocation ?? driver.location_string,
         drive_remaining: st.drive          ?? driver.drive_remaining,
         shift_remaining: st.shift          ?? driver.shift_remaining,
         break_remaining: st.break          ?? driver.break_remaining,
