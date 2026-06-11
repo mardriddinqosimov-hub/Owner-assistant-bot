@@ -257,6 +257,7 @@ const driverRefresh = async (ctx) => {
       const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
       const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
       const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
+      logger.info(`driverRefresh saving: speed=${rawSpeed} lat=${rawLat} lon=${rawLon} truck=${rawTruck} loc=${rawLocation}`);
       await driver.update({
         current_status:  STATUS_LABELS[st.current_status] || st.current_status || driver.current_status,
         speed:           rawSpeed ?? driver.speed,
