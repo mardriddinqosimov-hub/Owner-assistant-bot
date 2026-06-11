@@ -37,23 +37,29 @@ async function fetchDriverStatus(companyKey) {
 
 async function fetchVehicleStatus(companyKey) {
   const client = makeClient(companyKey);
-  const endpoints = [
-    { url: '/latest-vehicle-status', params: { limit: 1000 } },
-    { url: '/vehicles',              params: { limit: 1000 } },
-    { url: '/vehicle-tracking',      params: { limit: 1000 } },
+  const candidates = [
+    '/vehicle-status',
+    '/vehicles/status',
+    '/vehicles/live',
+    '/vehicles',
+    '/fleet/tracking',
+    '/fleet/vehicles',
+    '/latest-vehicle-status',
   ];
-  for (const { url, params } of endpoints) {
+  let best = [];
+  for (const url of candidates) {
     try {
-      const res = await client.get(url, { params });
-      const raw = res.data?.data ?? res.data?.vehicles ?? res.data;
-      if (Array.isArray(raw) && raw.length > 0) {
-        logger.info(`fetchVehicleStatus: got ${raw.length} records from ${url}`);
-        return raw;
+      const res = await client.get(url, { params: { limit: 1000 } });
+      const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
+      if (Array.isArray(raw) && raw.length > best.length) {
+        logger.info(`fetchVehicleStatus: ${url} returned ${raw.length} records`);
+        best = raw;
+        if (best.length > 5) break; // good enough, stop trying
       }
     } catch {}
   }
-  logger.warn('fetchVehicleStatus: all endpoints returned empty');
-  return [];
+  if (!best.length) logger.warn('fetchVehicleStatus: all endpoints returned empty');
+  return best;
 }
 
 async function fetchCompanyInfo(companyKey) {
