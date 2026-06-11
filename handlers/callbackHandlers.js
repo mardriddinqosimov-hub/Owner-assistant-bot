@@ -228,9 +228,23 @@ const driverRefresh = async (ctx) => {
     ]);
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
-    const v  = vehicleRaw.find(v => String(v.driver_id) === String(driverId)) || {};
 
-    logger.info(`driverRefresh vehicle raw for ${driverId}:`, JSON.stringify(v).slice(0, 500));
+    // Log vehicle array structure so we can identify correct field names
+    if (vehicleRaw.length > 0) {
+      logger.info(`driverRefresh vehicleRaw[0] keys:`, Object.keys(vehicleRaw[0]));
+      logger.info(`driverRefresh vehicleRaw[0] sample:`, JSON.stringify(vehicleRaw[0]).slice(0, 600));
+    }
+
+    // Try matching vehicle by driver_id, assigned_driver_id, or driver name via st
+    const v = vehicleRaw.find(r =>
+      String(r.driver_id) === String(driverId) ||
+      String(r.assigned_driver_id) === String(driverId) ||
+      String(r.current_driver_id) === String(driverId) ||
+      (st.vehicle_id && String(r.vehicle_id) === String(st.vehicle_id)) ||
+      (st.vehicle_id && String(r.id) === String(st.vehicle_id))
+    ) || {};
+
+    logger.info(`driverRefresh matched vehicle for ${driverId}:`, JSON.stringify(v).slice(0, 500));
 
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {

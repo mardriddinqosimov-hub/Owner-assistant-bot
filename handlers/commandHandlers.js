@@ -38,9 +38,14 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
   const statusMap = {};
   for (const s of statusRaw) statusMap[String(s.driver_id)] = s;
 
-  const vehicleMap = {};
+  // Index vehicles by every possible ID so we can cross-reference via status
+  const vehicleByDriverId   = {};
+  const vehicleByVehicleId  = {};
   for (const v of vehicleRaw) {
-    if (v.driver_id) vehicleMap[String(v.driver_id)] = v;
+    if (v.driver_id)          vehicleByDriverId[String(v.driver_id)]   = v;
+    if (v.assigned_driver_id) vehicleByDriverId[String(v.assigned_driver_id)] = v;
+    const vid = v.vehicle_id ?? v.id;
+    if (vid) vehicleByVehicleId[String(vid)] = v;
   }
 
   const activeIds = [];
@@ -49,19 +54,25 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     activeIds.push(dId);
     const name = `${d.first_name || ''} ${d.last_name || ''}`.trim() || d.name || d.driver_name || d.username || 'Unknown';
     const st = statusMap[dId] || {};
-    const v  = vehicleMap[dId] || {};
+    // Try direct driver match first, then cross-ref via vehicle_id on status record
+    const v = vehicleByDriverId[dId]
+      || (st.vehicle_id ? vehicleByVehicleId[String(st.vehicle_id)] : null)
+      || {};
+
+    const rawLat = v.lat ?? v.latitude ?? v.gps_lat;
+    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon;
 
     const driverData = {
       user_id:          user.id,
       driver_id:        dId,
       driver_name:      name,
-      truck_number:     v.number  || d.truck_number || null,
+      truck_number:     v.number || v.truck_number || v.vehicle_number || d.truck_number || null,
       eld_provider:     user.company_name || 'ELD',
       current_status:   mapStatus(st.current_status),
-      speed:            v.speed   ?? null,
-      latitude:         v.lat     ? parseFloat(v.lat) : null,
-      longitude:        v.lon     ? parseFloat(v.lon) : null,
-      location_string:  v.calc_location || null,
+      speed:            v.speed ?? v.current_speed ?? null,
+      latitude:         rawLat ? parseFloat(rawLat) : null,
+      longitude:        rawLon ? parseFloat(rawLon) : null,
+      location_string:  v.calc_location ?? v.location ?? v.address ?? null,
       drive_remaining:  st.drive  ?? null,
       shift_remaining:  st.shift  ?? null,
       break_remaining:  st.break  ?? null,
