@@ -62,6 +62,7 @@ bot.command('orders', commandHandlers.orders);
 // ─── Temp debug command ───────────────────────────────────────────────────────
 bot.command('debugapi', async (ctx) => {
   const axios = require('axios');
+  const { fetchDriverStatus } = require('./services/eldService');
   const User = require('./models/User');
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
   if (!user?.company_api_key) return ctx.reply('No API key set.');
@@ -70,25 +71,21 @@ bot.command('debugapi', async (ctx) => {
     'X-API-Company-Key': user.company_api_key,
   };
   const base = 'https://api.drivehos.app/v2';
-  const results = [];
-  const toTry = [
-    '/latest-vehicle-status?limit=100',
-    '/latest-vehicle-status?limit=100&page=1',
-    '/latest-vehicle-status?limit=100&offset=0',
-    '/vehicle-status?limit=100',
-    '/vehicles?limit=100',
-    '/vehicles/tracking',
-    '/fleet/map',
-    '/fleet/status',
-  ];
-  for (const path of toTry) {
+  // Get first 3 driver IDs to test per-driver vehicle fetch
+  const statusRaw = await fetchDriverStatus(user.company_api_key);
+  const driverIds = statusRaw.slice(0, 3).map(s => s.driver_id);
+  const results = [`Testing per-driver vehicle fetch for ${driverIds.length} drivers:`];
+  for (const dId of driverIds) {
     try {
-      const res = await axios.get(base + path, { headers, timeout: 5000 });
-      const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
+      const res = await axios.get(`${base}/latest-vehicle-status`, {
+        headers, timeout: 5000, params: { driver_id: dId, limit: 10 },
+      });
+      const raw = res.data?.data ?? res.data;
       const count = Array.isArray(raw) ? raw.length : '?';
-      results.push(`${path} → ${count} records`);
+      const sample = Array.isArray(raw) && raw[0] ? `speed=${raw[0].speed} lat=${raw[0].lat}` : JSON.stringify(raw).slice(0,80);
+      results.push(`driver ${dId.slice(0,8)}... → ${count} records | ${sample}`);
     } catch (e) {
-      results.push(`${path} → ${e.response?.status || e.message}`);
+      results.push(`driver ${dId.slice(0,8)}... → ${e.response?.status || e.message}`);
     }
   }
   await ctx.reply(results.join('\n'));
