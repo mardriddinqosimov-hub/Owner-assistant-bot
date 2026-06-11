@@ -61,18 +61,37 @@ bot.command('orders', commandHandlers.orders);
 
 // ─── Temp debug command ───────────────────────────────────────────────────────
 bot.command('debugapi', async (ctx) => {
-  const { fetchDriverStatus, fetchVehicleStatus } = require('./services/eldService');
+  const axios = require('axios');
   const User = require('./models/User');
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
   if (!user?.company_api_key) return ctx.reply('No API key set.');
-  const [statusRaw, vehicleRaw] = await Promise.all([
-    fetchDriverStatus(user.company_api_key),
-    fetchVehicleStatus(user.company_api_key),
-  ]);
-  const firstSt = statusRaw[0] || {};
-  const firstV  = vehicleRaw[0] || {};
-  await ctx.reply(`STATUS keys (${statusRaw.length} drivers):\n${Object.keys(firstSt).join(', ')}\n\nSample:\n${JSON.stringify(firstSt).slice(0,400)}`);
-  await ctx.reply(`VEHICLE keys (${vehicleRaw.length} records):\n${Object.keys(firstV).join(', ')}\n\nSample:\n${JSON.stringify(firstV).slice(0,400)}`);
+  const headers = {
+    'X-API-Provider-Key': process.env.PROVIDER_KEY,
+    'X-API-Company-Key': user.company_api_key,
+  };
+  const base = 'https://api.drivehos.app/v2';
+  const results = [];
+  const toTry = [
+    '/latest-vehicle-status?limit=100',
+    '/latest-vehicle-status?limit=100&page=1',
+    '/latest-vehicle-status?limit=100&offset=0',
+    '/vehicle-status?limit=100',
+    '/vehicles?limit=100',
+    '/vehicles/tracking',
+    '/fleet/map',
+    '/fleet/status',
+  ];
+  for (const path of toTry) {
+    try {
+      const res = await axios.get(base + path, { headers, timeout: 5000 });
+      const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
+      const count = Array.isArray(raw) ? raw.length : '?';
+      results.push(`${path} → ${count} records`);
+    } catch (e) {
+      results.push(`${path} → ${e.response?.status || e.message}`);
+    }
+  }
+  await ctx.reply(results.join('\n'));
 });
 
 // ─── Driver callbacks ─────────────────────────────────────────────────────────
