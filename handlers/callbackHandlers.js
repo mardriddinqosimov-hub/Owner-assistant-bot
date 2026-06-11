@@ -229,9 +229,6 @@ const driverRefresh = async (ctx) => {
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
 
-    logger.info(`driverRefresh st=${JSON.stringify(st).slice(0, 600)}`);
-    logger.info(`driverRefresh vehicleRaw.length=${vehicleRaw.length} ids=${vehicleRaw.map(r=>r.driver_id).join(',').slice(0,200)}`);
-
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
       String(r.assigned_driver_id) === String(driverId) ||
