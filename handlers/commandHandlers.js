@@ -66,17 +66,20 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number;
     const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
 
+    const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
+
     const driverData = {
       user_id:          user.id,
       driver_id:        dId,
       driver_name:      name,
-      truck_number:     rawTruck || null,
+      truck_number:     rawTruck || existing?.truck_number || null,
       eld_provider:     user.company_name || 'ELD',
       current_status:   mapStatus(st.current_status),
-      speed:            rawSpeed ?? null,
-      latitude:         rawLat ? parseFloat(rawLat) : null,
-      longitude:        rawLon ? parseFloat(rawLon) : null,
-      location_string:  rawLocation ?? null,
+      // Preserve cached GPS if API returns no vehicle data for this driver
+      speed:            rawSpeed ?? existing?.speed ?? null,
+      latitude:         rawLat ? parseFloat(rawLat) : (existing?.latitude ?? null),
+      longitude:        rawLon ? parseFloat(rawLon) : (existing?.longitude ?? null),
+      location_string:  rawLocation ?? existing?.location_string ?? null,
       drive_remaining:  st.drive  ?? null,
       shift_remaining:  st.shift  ?? null,
       break_remaining:  st.break  ?? null,
@@ -84,7 +87,6 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       updated_at:       new Date(),
     };
 
-    const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
     if (existing) {
       await existing.update(driverData);
     } else {
