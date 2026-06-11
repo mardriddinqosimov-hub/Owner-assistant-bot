@@ -59,6 +59,22 @@ bot.command('help', commandHandlers.help);
 bot.command('setapi', commandHandlers.setapi);
 bot.command('orders', commandHandlers.orders);
 
+// ─── Temp debug command ───────────────────────────────────────────────────────
+bot.command('debugapi', async (ctx) => {
+  const { fetchDriverStatus, fetchVehicleStatus } = require('./services/eldService');
+  const User = require('./models/User');
+  const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+  if (!user?.company_api_key) return ctx.reply('No API key set.');
+  const [statusRaw, vehicleRaw] = await Promise.all([
+    fetchDriverStatus(user.company_api_key),
+    fetchVehicleStatus(user.company_api_key),
+  ]);
+  const firstSt = statusRaw[0] || {};
+  const firstV  = vehicleRaw[0] || {};
+  await ctx.reply(`STATUS keys (${statusRaw.length} drivers):\n${Object.keys(firstSt).join(', ')}\n\nSample:\n${JSON.stringify(firstSt).slice(0,400)}`);
+  await ctx.reply(`VEHICLE keys (${vehicleRaw.length} records):\n${Object.keys(firstV).join(', ')}\n\nSample:\n${JSON.stringify(firstV).slice(0,400)}`);
+});
+
 // ─── Driver callbacks ─────────────────────────────────────────────────────────
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
 bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
