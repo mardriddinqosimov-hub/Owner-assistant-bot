@@ -244,7 +244,9 @@ const driverRefresh = async (ctx) => {
       (st.vehicle_id && String(r.id) === String(st.vehicle_id))
     ) || {};
 
-    logger.info(`driverRefresh matched vehicle for ${driverId}:`, JSON.stringify(v).slice(0, 500));
+    logger.info(`driverRefresh driverId=${driverId} st.vehicle_id=${st.vehicle_id} vehicleRaw.length=${vehicleRaw.length}`);
+    logger.info(`driverRefresh vehicleRaw driver_ids:`, vehicleRaw.map(r => r.driver_id).join(', '));
+    logger.info(`driverRefresh matched vehicle:`, JSON.stringify(v).slice(0, 300));
 
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {
