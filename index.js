@@ -59,16 +59,6 @@ bot.command('help', commandHandlers.help);
 bot.command('setapi', commandHandlers.setapi);
 bot.command('orders', commandHandlers.orders);
 
-bot.command('debugapi', async (ctx) => {
-  const { fetchDrivers } = require('./services/eldService');
-  const User = require('./models/User');
-  const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-  if (!user?.company_api_key) return ctx.reply('No API key.');
-  const drivers = await fetchDrivers(user.company_api_key);
-  const first = drivers[0] || {};
-  await ctx.reply(`DRIVER keys:\n${Object.keys(first).join(', ')}\n\nSample:\n${JSON.stringify(first).slice(0,600)}`);
-});
-
 // ─── Driver callbacks ─────────────────────────────────────────────────────────
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
 bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
@@ -256,6 +246,44 @@ function setupManagementBot() {
   managementBot.on('text', managementBotHandlers.mgmtHandleText);
 }
 
+// ─── GPS vehicle polling (every 30 sec) ───────────────────────────────────────
+// DriveHOS only returns 1 vehicle at a time (the most recently updated).
+// By polling frequently we catch each truck as it checks in and cache the data.
+function startGpsPolling() {
+  const { fetchVehicleStatus } = require('./services/eldService');
+  const Driver = require('./models/Driver');
+
+  const run = async () => {
+    try {
+      const users = await User.findAll({ where: { company_api_key: { [require('sequelize').Op.ne]: null } } });
+      for (const user of users) {
+        try {
+          const vehicleRaw = await fetchVehicleStatus(user.company_api_key);
+          for (const v of vehicleRaw) {
+            if (!v.driver_id) continue;
+            const driver = await Driver.findOne({ where: { driver_id: String(v.driver_id), user_id: user.id } });
+            if (!driver) continue;
+            const rawLat = v.lat ?? v.latitude;
+            const rawLon = v.lon ?? v.longitude;
+            await driver.update({
+              speed:           v.speed ?? driver.speed,
+              latitude:        rawLat ? parseFloat(rawLat) : driver.latitude,
+              longitude:       rawLon ? parseFloat(rawLon) : driver.longitude,
+              truck_number:    v.number || driver.truck_number,
+              location_string: v.calc_location || driver.location_string,
+            });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      logger.warn('GPS poll error:', e.message);
+    }
+  };
+
+  setInterval(run, 30 * 1000);
+  logger.info('✅ GPS vehicle polling started (30 sec interval)');
+}
+
 // ─── DOT inspection polling (every 10 min) ────────────────────────────────────
 function startInspectionPolling() {
   const INTERVAL = 10 * 60 * 1000;
@@ -324,6 +352,7 @@ async function startBot() {
     }
 
     startInspectionPolling();
+    startGpsPolling();
     logger.info('🤖 BOT ONLINE - READY FOR COMMANDS');
   } catch (error) {
     logger.error('Failed to start bot:', error);
