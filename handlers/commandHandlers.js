@@ -48,6 +48,11 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     if (vid) vehicleByVehicleId[String(vid)] = v;
   }
 
+  // Log first driver record and first vehicle record once so we can see all available fields
+  if (activeDrivers.length > 0) logger.info(`DRIVER_FIELDS: ${JSON.stringify(Object.keys(activeDrivers[0]))}`);
+  if (vehicleRaw.length > 0) logger.info(`VEHICLE_FIELDS: ${JSON.stringify(Object.keys(vehicleRaw[0]))}`);
+  if (vehicleRaw.length > 0) logger.info(`VEHICLE_SAMPLE: ${JSON.stringify(vehicleRaw[0])}`);
+
   const activeIds = [];
   for (const d of activeDrivers) {
     const dId = String(d.driver_id || d.id);
