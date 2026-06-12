@@ -59,7 +59,16 @@ bot.command('help', commandHandlers.help);
 bot.command('setapi', commandHandlers.setapi);
 bot.command('orders', commandHandlers.orders);
 
-// ─── Temp debug command ───────────────────────────────────────────────────────
+bot.command('debugapi', async (ctx) => {
+  const { fetchDrivers } = require('./services/eldService');
+  const User = require('./models/User');
+  const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+  if (!user?.company_api_key) return ctx.reply('No API key.');
+  const drivers = await fetchDrivers(user.company_api_key);
+  const first = drivers[0] || {};
+  await ctx.reply(`DRIVER keys:\n${Object.keys(first).join(', ')}\n\nSample:\n${JSON.stringify(first).slice(0,600)}`);
+});
+
 // ─── Driver callbacks ─────────────────────────────────────────────────────────
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
 bot.action(/^driver_refresh_(.+)$/, callbackHandlers.driverRefresh);
