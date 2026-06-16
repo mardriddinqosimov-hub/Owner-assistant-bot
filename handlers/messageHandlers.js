@@ -261,10 +261,15 @@ const handleText = async (ctx) => {
         );
         await task.update({ support_message_id: sent.message_id });
       } catch (err) {
-        logger.error(`SUPPORT_SEND_FAIL chat=${SUPPORT_CHAT_ID} thread=${process.env.TOPIC_NEW_REQUEST || '2'} err=${err.message}`);
+        const newId = err.response?.parameters?.migrate_to_chat_id;
+        if (newId) {
+          logger.error(`SUPPORT_SEND_FAIL: group migrated to supergroup. NEW_CHAT_ID=${newId}`);
+        } else {
+          logger.error(`SUPPORT_SEND_FAIL chat=${SUPPORT_CHAT_ID} thread=${process.env.TOPIC_NEW_REQUEST || '2'} err=${err.message}`);
+        }
       }
     } else {
-      logger.error('SUPPORT_SEND_FAIL: supportBot is null — SUPPORT_BOT_TOKEN missing or bot not initialized');
+      logger.error('SUPPORT_SEND_FAIL: supportBot is null');
     }
 
     return ctx.reply(
