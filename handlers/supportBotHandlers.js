@@ -41,10 +41,10 @@ const handleSupportText = async (ctx) => {
   const { getMainBot } = require('../services/notificationService');
   const mainBot = getMainBot();
 
-  // Extract member ID: supports "done 123" or just "123"
-  const memberId = text.toLowerCase().startsWith('done ')
-    ? text.slice(5).trim()
-    : text.trim();
+  // Only process replies that start with "done [memberID]"
+  if (!text.toLowerCase().startsWith('done ')) return;
+  const memberId = text.slice(5).trim();
+  if (!memberId) return;
 
   // ── Case 1: Support marking a message task done ───────────────────────────
   const messageTask = await SupportTask.findOne({
