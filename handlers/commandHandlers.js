@@ -120,7 +120,7 @@ const start = async (ctx) => {
     };
     let user = await User.findOne({ where: { telegram_id: telegramId } });
     if (!user) {
-      user = await User.create({ telegram_id: telegramId, ...tgInfo });
+      user = await User.create({ telegram_id: telegramId, role: 'owner', ...tgInfo });
     } else {
       await user.update({ last_active: new Date(), ...tgInfo });
     }

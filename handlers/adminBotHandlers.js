@@ -448,7 +448,7 @@ const haHandleText = async (ctx) => {
 
   // Build where clause
   const where = {};
-  if (target === 'owner')  where.role     = 'owner';
+  if (target === 'owner')  where.role     = { [Op.in]: ['owner', 'unknown'] };
   if (target === 'safety') where.role     = 'safety';
   if (target === 'leader') where.platform = 'leader';
   if (target === 'factor') where.platform = 'factor';
