@@ -295,6 +295,12 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
       const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(wr.amount || 0));
       await owner.update({ referral_balance: newBal.toFixed(2) });
 
+      // Move all confirmed referrals to paid so they don't get paid again
+      await Referral.update(
+        { status: 'paid', payout_method: 'card', paid_at: new Date() },
+        { where: { owner_id: wr.owner_id, status: 'confirmed' } }
+      );
+
       if (_bot) {
         try {
           const last4 = wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????';
