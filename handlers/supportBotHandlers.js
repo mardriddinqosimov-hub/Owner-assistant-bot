@@ -1,7 +1,7 @@
 const SupportTask = require('../models/SupportTask');
 const logger = require('../utils/logger');
 
-const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
+const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
 
 const getChatId = async (ctx) => {
   await ctx.reply(`Chat ID: <code>${ctx.chat.id}</code>`, { parse_mode: 'HTML' });

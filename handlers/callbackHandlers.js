@@ -1426,7 +1426,7 @@ const specialTaskCall = async (ctx) => {
 
     const SupportTask = require('../models/SupportTask');
     const { getSupportBot, getMainBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
     const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
@@ -1507,7 +1507,7 @@ const taskCallEnded = async (ctx) => {
 
     const SupportTask = require('../models/SupportTask');
     const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
     const task = await SupportTask.findByPk(taskId);
@@ -1542,7 +1542,7 @@ const taskOwnerApproved = async (ctx) => {
 
     const SupportTask = require('../models/SupportTask');
     const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
     const task = await SupportTask.findByPk(taskId);
@@ -1577,7 +1577,7 @@ const taskNotDone = async (ctx) => {
 
     const SupportTask = require('../models/SupportTask');
     const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
     const task = await SupportTask.findByPk(taskId);
