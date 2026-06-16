@@ -229,6 +229,8 @@ function setupAdminBot() {
   adminBot.action(/^ha_admin_role_(\d+)_([\w]+)$/,           adminBotHandlers.haAdminSetRole);
   adminBot.action(/^ha_admin_remove_(\d+)$/,                 adminBotHandlers.haAdminRemove);
 
+  adminBot.action('ha_blocks',                               adminBotHandlers.haBlocks);
+  adminBot.action(/^ha_block_view_([\w]+)$/,                 adminBotHandlers.haBlockDetail);
   adminBot.action(/^ha_assign_block_(\d+)$/,                 adminBotHandlers.haAssignBlock);
   adminBot.action(/^ha_setblock_(\d+)_([\w]+)$/,             adminBotHandlers.haSetBlock);
 

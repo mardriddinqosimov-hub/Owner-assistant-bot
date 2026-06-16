@@ -73,8 +73,8 @@ async function notifyHeadAdmin(order) {
 }
 
 const BLOCKS = [
-  { key: 'a',        label: '🟢 A (717)' },
-  { key: 'd',        label: '🟣 D (629)' },
+  { key: 'a',        label: '🟢 A block' },
+  { key: 'd',        label: '🟣 D block' },
   { key: 'texas',    label: '🔴 Texas' },
   { key: 'missouri', label: '⚪️ Missouri' },
   { key: 'first_a',  label: '🔵 First-A' },

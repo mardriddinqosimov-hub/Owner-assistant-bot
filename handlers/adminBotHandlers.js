@@ -11,8 +11,8 @@ const adminSessions = new Map(); // telegram_id → { action, target? }
 const USERS_PER_PAGE = 8;
 
 const BLOCKS = [
-  { key: 'a',        label: '🟢 A (717)',   short: '🟢A' },
-  { key: 'd',        label: '🟣 D (629)',   short: '🟣D' },
+  { key: 'a',        label: '🟢 A block',   short: '🟢A' },
+  { key: 'd',        label: '🟣 D block',   short: '🟣D' },
   { key: 'texas',    label: '🔴 Texas',     short: '🔴TX' },
   { key: 'missouri', label: '⚪️ Missouri',  short: '⚪️MO' },
   { key: 'first_a',  label: '🔵 First-A',  short: '🔵FA' },
@@ -31,6 +31,7 @@ const CABLE_NAMES = {
 const MAIN_KB = {
   inline_keyboard: [
     [{ text: '👥 Users',       callback_data: 'ha_users_0' }, { text: '📊 Stats',  callback_data: 'ha_stats' }],
+    [{ text: '🏷 Blocks',      callback_data: 'ha_blocks' }],
     [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
     [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
     [{ text: '📄 Report',      callback_data: 'ha_report' }],
@@ -796,6 +797,68 @@ const haAdminRemove = async (ctx) => {
   }
 };
 
+// ─── Blocks Section ──────────────────────────────────────────────────────────
+
+const haBlocks = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const counts = await Promise.all(
+      BLOCKS.map(b => User.count({ where: { block: b.key, deleted_at: null } }))
+    );
+    const unassigned = await User.count({ where: { block: null, deleted_at: null } });
+
+    const buttons = BLOCKS.map((b, i) => [{
+      text: `${b.label}  (${counts[i]})`,
+      callback_data: `ha_block_view_${b.key}`,
+    }]);
+    buttons.push([{ text: `❓ Unassigned  (${unassigned})`, callback_data: 'ha_block_view_unassigned' }]);
+    buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
+
+    await ctx.editMessageText(
+      `🏷 <b>Blocks</b>\n\nSelect a block to view its owners:`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (err) {
+    logger.error('haBlocks error:', err);
+  }
+};
+
+const haBlockDetail = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const blockKey = ctx.match[1]; // block key or 'unassigned'
+    const isUnassigned = blockKey === 'unassigned';
+    const blockInfo = BLOCKS.find(b => b.key === blockKey);
+
+    const where = isUnassigned
+      ? { block: null, deleted_at: null }
+      : { block: blockKey, deleted_at: null };
+
+    const users = await User.findAll({ where, order: [['created_at', 'DESC']] });
+    const title = isUnassigned ? '❓ Unassigned' : blockInfo?.label || blockKey;
+
+    if (!users.length) {
+      return ctx.editMessageText(
+        `🏷 <b>${title}</b>\n\nNo owners assigned to this block yet.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]] } }
+      );
+    }
+
+    const buttons = users.map(u => [{
+      text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'}${u.blocked ? ' 🚫' : ''}`,
+      callback_data: `ha_user_${u.id}`,
+    }]);
+    buttons.push([{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]);
+
+    await ctx.editMessageText(
+      `🏷 <b>${title}</b>  (${users.length} owner${users.length !== 1 ? 's' : ''})`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
+    );
+  } catch (err) {
+    logger.error('haBlockDetail error:', err);
+  }
+};
+
 // ─── Assign Block ────────────────────────────────────────────────────────────
 
 const haAssignBlock = async (ctx) => {
@@ -868,6 +931,7 @@ module.exports = {
   haBroadcast, haBcTarget,
   haReport, haGenerateReport,
   haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
+  haBlocks, haBlockDetail,
   haAssignBlock, haSetBlock,
   haHandleText,
   notifyNewOrder,
