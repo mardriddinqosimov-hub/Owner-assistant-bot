@@ -14,7 +14,9 @@ const accountingHandlers    = require('./handlers/accountingHandlers');
 const adminBotHandlers      = require('./handlers/adminBotHandlers');
 const managementBotHandlers = require('./handlers/managementBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
+const supportBotHandlers = require('./handlers/supportBotHandlers');
 const notifService = require('./services/notificationService');
+require('./models/SupportTask'); // ensure table is created on sync
 const dashboardModule = require('./routes/dashboard');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -94,6 +96,14 @@ bot.action('order_active', callbackHandlers.orderActive);
 bot.action(/^order_history_(\d+)$/, callbackHandlers.orderHistory);
 bot.action(/^order_detail_(\d+)$/, callbackHandlers.orderDetail);
 bot.action(/^order_redo_(\d+)$/, callbackHandlers.orderRedo);
+
+// ─── Special Task callbacks ───────────────────────────────────────────────────
+bot.action('special_task_menu',    callbackHandlers.specialTaskMenu);
+bot.action('special_task_message', callbackHandlers.specialTaskMessage);
+bot.action('special_task_call',    callbackHandlers.specialTaskCall);
+bot.action(/^task_call_ended_(\d+)$/, callbackHandlers.taskCallEnded);
+bot.action(/^task_approved_(\d+)$/,   callbackHandlers.taskOwnerApproved);
+bot.action(/^task_not_done_(\d+)$/,   callbackHandlers.taskNotDone);
 
 // ─── Referral ─────────────────────────────────────────────────────────────────
 bot.action('referral_menu',                  callbackHandlers.referralMenu);
@@ -246,6 +256,19 @@ function setupManagementBot() {
   managementBot.on('text', managementBotHandlers.mgmtHandleText);
 }
 
+// ─── Support bot ─────────────────────────────────────────────────────────────
+let supportBot = null;
+
+function setupSupportBot() {
+  if (!process.env.SUPPORT_BOT_TOKEN) {
+    logger.warn('SUPPORT_BOT_TOKEN not set — support bot disabled');
+    return;
+  }
+  supportBot = new Telegraf(process.env.SUPPORT_BOT_TOKEN);
+  supportBot.command('start', supportBotHandlers.supportStart);
+  supportBot.on('text', supportBotHandlers.handleSupportText);
+}
+
 // ─── GPS vehicle polling (every 30 sec) ───────────────────────────────────────
 // DriveHOS only returns 1 vehicle at a time (the most recently updated).
 // By polling frequently we catch each truck as it checks in and cache the data.
@@ -298,12 +321,14 @@ async function startBot() {
     setupAccountingBot();
     setupAdminBot();
     setupManagementBot();
+    setupSupportBot();
 
     // Wire notification service
     notifService.setMainBot(bot);
     if (accountingBot)  notifService.setAccountingBot(accountingBot);
     if (adminBot)       notifService.setAdminBot(adminBot);
     if (managementBot)  notifService.setManagementBot(managementBot);
+    if (supportBot)     notifService.setSupportBot(supportBot);
 
     // ─── Express (always runs — serves dashboard + health + optional webhook) ──
     const app = express();
@@ -351,6 +376,13 @@ async function startBot() {
       logger.info('✅ Management bot polling started');
     }
 
+    // Support bot
+    if (supportBot) {
+      await supportBot.telegram.deleteWebhook();
+      supportBot.launch();
+      logger.info('✅ Support bot polling started');
+    }
+
     startInspectionPolling();
     startGpsPolling();
     logger.info('🤖 BOT ONLINE - READY FOR COMMANDS');
@@ -365,6 +397,7 @@ process.once('SIGINT', () => {
   if (accountingBot)  accountingBot.stop('SIGINT');
   if (adminBot)       adminBot.stop('SIGINT');
   if (managementBot)  managementBot.stop('SIGINT');
+  if (supportBot)     supportBot.stop('SIGINT');
   process.exit(0);
 });
 process.once('SIGTERM', () => {
@@ -372,6 +405,7 @@ process.once('SIGTERM', () => {
   if (accountingBot)  accountingBot.stop('SIGTERM');
   if (adminBot)       adminBot.stop('SIGTERM');
   if (managementBot)  managementBot.stop('SIGTERM');
+  if (supportBot)     supportBot.stop('SIGTERM');
   process.exit(0);
 });
 

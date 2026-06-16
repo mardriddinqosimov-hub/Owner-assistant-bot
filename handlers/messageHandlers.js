@@ -15,6 +15,7 @@ const {
   cardSessions,
   showConfirmation,
   buildOrderSummary,
+  specialTaskSessions,
 } = require('./callbackHandlers');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
@@ -219,6 +220,55 @@ const handleText = async (ctx) => {
 
   if (session && session.step === 'payment') {
     return ctx.reply('📎 Please send a <b>photo or PDF</b> of your payment screenshot.', { parse_mode: 'HTML' });
+  }
+
+  // ── Special Task: owner typing their message request ──────────────────────
+  if (specialTaskSessions.get(userId) === 'awaiting_text') {
+    specialTaskSessions.delete(userId);
+    const requestText = ctx.message.text.trim();
+
+    const user = await User.findOne({ where: { telegram_id: userId } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const SupportTask = require('../models/SupportTask');
+    const { getSupportBot } = require('../services/notificationService');
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '7511071851';
+    const supportBot = getSupportBot();
+
+    const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
+
+    const task = await SupportTask.create({
+      owner_user_id:     user.id,
+      owner_telegram_id: String(userId),
+      owner_name:        ownerLabel,
+      type:              'message',
+      request_text:      requestText,
+      status:            'pending',
+      created_at:        new Date(),
+      updated_at:        new Date(),
+    });
+
+    if (supportBot) {
+      try {
+        const sent = await supportBot.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `🔔 <b>New Request</b>\n\n` +
+          `👤 Owner: <b>${ownerLabel}</b>\n` +
+          `🏢 Company: ${user.company_name || '—'}\n\n` +
+          `📝 Request:\n${requestText}\n\n` +
+          `<i>Reply to this message with: <code>done [yourMemberID]</code></i>`,
+          { parse_mode: 'HTML' }
+        );
+        await task.update({ support_message_id: sent.message_id });
+      } catch (err) {
+        logger.warn('Failed to forward task to support:', err.message);
+      }
+    }
+
+    return ctx.reply(
+      `✅ <b>Request sent to support!</b>\n\nThe team will handle it shortly. You'll be notified here when it's done.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+    );
   }
 
   await ctx.reply('Use /help to see available commands.');

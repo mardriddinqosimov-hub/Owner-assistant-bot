@@ -143,6 +143,7 @@ const start = async (ctx) => {
             [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
             [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
             [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+            [{ text: '🛠️ Special Task',    callback_data: 'special_task_menu' }],
             [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
             [{ text: '❓ Help',            callback_data: 'help_menu' }],
           ],
