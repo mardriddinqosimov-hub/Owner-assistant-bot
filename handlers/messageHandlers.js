@@ -257,7 +257,7 @@ const handleText = async (ctx) => {
           `🏢 Company: ${user.company_name || '—'}\n\n` +
           `📝 Request:\n${requestText}\n\n` +
           `<i>Reply to this message with: <code>done [yourMemberID]</code></i>`,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_NEW_REQUEST || '2') }
         );
         await task.update({ support_message_id: sent.message_id });
       } catch (err) {

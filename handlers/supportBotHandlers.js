@@ -70,7 +70,16 @@ const handleSupportText = async (ctx) => {
       }
     }
 
-    try { await ctx.reply(`⏳ Waiting for owner to confirm...`); } catch {}
+    try {
+      await ctx.telegram.sendMessage(
+        SUPPORT_CHAT_ID,
+        `⏙️ <b>In Process</b>\n\n` +
+        `👤 Owner: <b>${messageTask.owner_name}</b>\n` +
+        `🔖 Member ID: <b>${memberId}</b>\n\n` +
+        `Waiting for owner to confirm the request is done.`,
+        { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
+      );
+    } catch {}
     return;
   }
 
@@ -83,11 +92,12 @@ const handleSupportText = async (ctx) => {
     await callTask.update({ member_id: memberId, status: 'closed', updated_at: new Date() });
 
     try {
-      await ctx.reply(
-        `✅ <b>Case Closed!</b>\n\n` +
+      await ctx.telegram.sendMessage(
+        SUPPORT_CHAT_ID,
+        `✅ <b>Case Fully Closed</b>\n\n` +
         `📞 Call — handled by Member ID: <b>${memberId}</b>\n` +
-        `👤 Owner: ${callTask.owner_name}`,
-        { parse_mode: 'HTML' }
+        `👤 Owner: <b>${callTask.owner_name}</b>`,
+        { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_FULLY_DONE || '7') }
       );
     } catch {}
   }

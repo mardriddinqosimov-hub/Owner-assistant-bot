@@ -1450,7 +1450,7 @@ const specialTaskCall = async (ctx) => {
           `👤 Owner: <b>${ownerLabel}</b>\n` +
           `🏢 Company: ${user.company_name || '—'}\n\n` +
           `📞 Owner is calling you now.`,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_NEW_REQUEST || '2') }
         );
         await task.update({ support_message_id: sent.message_id });
       } catch (err) { logger.warn('Call notify to support failed:', err.message); }
@@ -1522,7 +1522,7 @@ const taskCallEnded = async (ctx) => {
           `📞 <b>Call Ended — Owner Approved</b>\n\n` +
           `👤 Owner: <b>${task.owner_name}</b>\n\n` +
           `Whoever handled this call, <b>reply to this message</b> with your Member ID to close the case.`,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
         );
         await task.update({ followup_message_id: sent.message_id });
       } catch (err) { logger.warn('Call-ended notify failed:', err.message); }
@@ -1558,7 +1558,7 @@ const taskOwnerApproved = async (ctx) => {
           `👤 Owner: <b>${task.owner_name}</b>\n` +
           `🏆 Handled by Member ID: <b>${task.member_id || '—'}</b>\n\n` +
           `Owner confirmed the request is fully done.`,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_FULLY_DONE || '7') }
         );
       } catch {}
     }
@@ -1593,7 +1593,7 @@ const taskNotDone = async (ctx) => {
           `⚠️ <b>Request Not Yet Done</b>\n\n` +
           `👤 Owner: <b>${task.owner_name}</b> says the request is not fully done.\n\n` +
           `Please continue and reply to the original request message with <code>done [yourID]</code> when complete.`,
-          { parse_mode: 'HTML' }
+          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
         );
       } catch {}
     }
