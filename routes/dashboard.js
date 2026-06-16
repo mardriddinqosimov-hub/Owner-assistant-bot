@@ -292,8 +292,9 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
 
     const owner = await User.findByPk(wr.owner_id);
     if (owner) {
-      const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(wr.amount || 0));
-      await owner.update({ referral_balance: newBal.toFixed(2) });
+      // Always zero out balance — withdrawal covers everything the owner is owed
+      const newBal = 0;
+      await owner.update({ referral_balance: '0.00' });
 
       // Move all confirmed referrals to paid so they don't get paid again
       await Referral.update(

@@ -1312,6 +1312,15 @@ const refWithdrawCard = async (ctx) => {
       );
     }
 
+    // Block duplicate pending requests
+    const existing = await WithdrawalRequest.findOne({ where: { owner_id: user.id, status: 'pending' } });
+    if (existing) {
+      return ctx.editMessageText(
+        `⏳ <b>Request Already Pending</b>\n\nYou already have a withdrawal request of <b>$${parseFloat(existing.amount).toFixed(2)}</b> being processed. Please wait for it to complete.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+      );
+    }
+
     const last4   = user.card_info.replace(/\s/g, '').slice(-4);
     const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
 
@@ -1356,6 +1365,23 @@ const refCoverService = async (ctx) => {
       return ctx.editMessageText('❌ No balance to apply.',
         { reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } });
     }
+
+    // Block duplicate pending requests
+    const existingReq = await WithdrawalRequest.findOne({ where: { owner_id: user.id, status: 'pending' } });
+    if (existingReq) {
+      return ctx.editMessageText(
+        `⏳ <b>Request Already Pending</b>\n\nYou already have a pending request of <b>$${parseFloat(existingReq.amount).toFixed(2)}</b>. Please wait for it to be processed.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+      );
+    }
+
+    await WithdrawalRequest.create({
+      owner_id:  user.id,
+      amount:    balance,
+      card_info: null,
+      status:    'pending',
+      source:    'service_cover',
+    });
 
     const ownerLabel = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || user.owner_name || `ID ${user.telegram_id}`;
     const { getAccountingBot } = require('../services/notificationService');
