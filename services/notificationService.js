@@ -72,6 +72,43 @@ async function notifyHeadAdmin(order) {
   }
 }
 
+const BLOCKS = [
+  { key: 'a',        label: '🟢 A (717)' },
+  { key: 'd',        label: '🟣 D (629)' },
+  { key: 'texas',    label: '🔴 Texas' },
+  { key: 'missouri', label: '⚪️ Missouri' },
+  { key: 'first_a',  label: '🔵 First-A' },
+  { key: 'first_b',  label: '🟤 First-B' },
+  { key: 'a1',       label: '🟡 A1' },
+  { key: 'b1',       label: '🟠 B1' },
+  { key: 'c1',       label: '⚫️ C1' },
+];
+
+async function notifyHeadAdminNewUser(user) {
+  if (!_adminBot) return;
+  try {
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || `ID ${user.telegram_id}`;
+    const rows = [];
+    for (let i = 0; i < BLOCKS.length; i += 3) {
+      rows.push(BLOCKS.slice(i, i + 3).map(b => ({
+        text: b.label,
+        callback_data: `ha_setblock_${user.id}_${b.key}`,
+      })));
+    }
+    rows.push([{ text: '👤 View Profile', callback_data: `ha_user_${user.id}` }]);
+    await _adminBot.telegram.sendMessage(
+      ADMIN_ID,
+      `🆕 <b>New Owner Registered</b>\n\n` +
+      `👤 ${name}\n` +
+      `🆔 <code>${user.telegram_id}</code>\n\n` +
+      `Assign to a block:`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } }
+    );
+  } catch (err) {
+    logger.warn('notifyHeadAdminNewUser failed:', err.message);
+  }
+}
+
 async function notifyCustomer(telegramId, message, options = {}) {
   if (!_mainBot) return;
   try {
@@ -81,4 +118,4 @@ async function notifyCustomer(telegramId, message, options = {}) {
   }
 }
 
-module.exports = { setAccountingBot, setMainBot, setAdminBot, setManagementBot, setSupportBot, getMainBot, getAccountingBot, getManagementBot, getSupportBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyCustomer };
+module.exports = { setAccountingBot, setMainBot, setAdminBot, setManagementBot, setSupportBot, getMainBot, getAccountingBot, getManagementBot, getSupportBot, notifyAdminNewOrder, notifyAdminText, notifyHeadAdmin, notifyHeadAdminNewUser, notifyCustomer };

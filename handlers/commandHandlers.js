@@ -4,6 +4,7 @@ const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
 const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents } = require('../services/eldService');
+const notifService = require('../services/notificationService');
 
 function isActiveDriver(d) {
   if (d.status !== undefined) return String(d.status).toLowerCase() === 'active';
@@ -116,6 +117,7 @@ const start = async (ctx) => {
     let user = await User.findOne({ where: { telegram_id: telegramId } });
     if (!user) {
       user = await User.create({ telegram_id: telegramId, role: 'owner', ...tgInfo });
+      notifService.notifyHeadAdminNewUser(user).catch(() => {});
     } else {
       await user.update({ last_active: new Date(), ...tgInfo });
     }

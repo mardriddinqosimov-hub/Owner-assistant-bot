@@ -10,6 +10,18 @@ const adminSessions = new Map(); // telegram_id → { action, target? }
 
 const USERS_PER_PAGE = 8;
 
+const BLOCKS = [
+  { key: 'a',        label: '🟢 A (717)',   short: '🟢A' },
+  { key: 'd',        label: '🟣 D (629)',   short: '🟣D' },
+  { key: 'texas',    label: '🔴 Texas',     short: '🔴TX' },
+  { key: 'missouri', label: '⚪️ Missouri',  short: '⚪️MO' },
+  { key: 'first_a',  label: '🔵 First-A',  short: '🔵FA' },
+  { key: 'first_b',  label: '🟤 First-B',  short: '🟤FB' },
+  { key: 'a1',       label: '🟡 A1',        short: '🟡A1' },
+  { key: 'b1',       label: '🟠 B1',        short: '🟠B1' },
+  { key: 'c1',       label: '⚫️ C1',        short: '⚫️C1' },
+];
+
 const CABLE_NAMES = {
   vm: '16-Pin Heavy Duty', obd: '16-Pin Light Duty', rp: '14-Pin', p9: '9-Pin',
 };
@@ -40,6 +52,16 @@ function roleIcon(r) {
 
 function platLabel(p) {
   return p === 'leader' ? 'Leader' : p === 'factor' ? 'Factor' : '—';
+}
+
+function blockLabel(key) {
+  const b = BLOCKS.find(b => b.key === key);
+  return b ? b.label : '—';
+}
+
+function blockShort(key) {
+  const b = BLOCKS.find(b => b.key === key);
+  return b ? b.short : '—';
 }
 
 function fmtDate(d) {
@@ -146,7 +168,7 @@ const haUsers = async (ctx, page = 0) => {
     }
 
     const buttons = slice.map(u => [{
-      text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'} [${platLabel(u.platform)}]${u.blocked ? ' 🚫' : ''}`,
+      text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'} [${platLabel(u.platform)}] [${blockShort(u.block)}]${u.blocked ? ' 🚫' : ''}`,
       callback_data: `ha_user_${u.id}`,
     }]);
 
@@ -186,6 +208,7 @@ const haUserDetail = async (ctx) => {
       `📧 Email: ${u.contact_email || '—'}\n` +
       `📱 Platform: ${platLabel(u.platform)}\n` +
       `🎭 Role: ${roleIcon(u.role)} ${u.role}\n` +
+      `🏷 Block: ${blockLabel(u.block)}\n` +
       `📦 Orders: ${orderCount}\n` +
       `📅 Joined: ${fmtDate(u.created_at)}\n` +
       `🕐 Last active: ${fmtDate(u.last_active)}`;
@@ -197,6 +220,8 @@ const haUserDetail = async (ctx) => {
       { text: `${u.role === 'safety'  ? '✅' : ''} Safety`,  callback_data: `ha_role_${userId}_safety` },
       { text: `${u.role === 'unknown' ? '✅' : ''} Unknown`, callback_data: `ha_role_${userId}_unknown` },
     ]);
+    // Assign block
+    rows.push([{ text: `🏷 Assign Block${u.block ? ` (${blockShort(u.block)})` : ''}`, callback_data: `ha_assign_block_${userId}` }]);
     // Block/unblock
     if (u.blocked) {
       rows.push([{ text: '✅ Unblock User', callback_data: `ha_unblock_${userId}` }]);
@@ -771,6 +796,51 @@ const haAdminRemove = async (ctx) => {
   }
 };
 
+// ─── Assign Block ────────────────────────────────────────────────────────────
+
+const haAssignBlock = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const u = await User.findByPk(userId);
+    if (!u) return ctx.editMessageText('❌ User not found.', { reply_markup: BACK_KB });
+
+    const rows = [];
+    for (let i = 0; i < BLOCKS.length; i += 3) {
+      rows.push(BLOCKS.slice(i, i + 3).map(b => ({
+        text: u.block === b.key ? `✅ ${b.label}` : b.label,
+        callback_data: `ha_setblock_${userId}_${b.key}`,
+      })));
+    }
+    rows.push([{ text: '◀️ Back', callback_data: `ha_user_${userId}` }]);
+
+    await ctx.editMessageText(
+      `🏷 <b>Assign Block</b>\n\n` +
+      `👤 ${userName(u)}\n` +
+      `🏢 ${u.company_name || '—'}\n` +
+      `Current: <b>${blockLabel(u.block)}</b>\n\n` +
+      `Select a block:`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } }
+    );
+  } catch (err) {
+    logger.error('haAssignBlock error:', err);
+  }
+};
+
+const haSetBlock = async (ctx) => {
+  try {
+    const userId = parseInt(ctx.match[1], 10);
+    const blockKey = ctx.match[2];
+    const found = BLOCKS.find(b => b.key === blockKey);
+    await ctx.answerCbQuery(found ? `Block set: ${found.label}` : 'Block updated');
+    await User.update({ block: blockKey }, { where: { id: userId } });
+    ctx.match[1] = String(userId);
+    await haUserDetail(ctx);
+  } catch (err) {
+    logger.error('haSetBlock error:', err);
+  }
+};
+
 // ─── New order notification ───────────────────────────────────────────────────
 
 async function notifyNewOrder(bot, adminId, order) {
@@ -798,6 +868,7 @@ module.exports = {
   haBroadcast, haBcTarget,
   haReport, haGenerateReport,
   haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
+  haAssignBlock, haSetBlock,
   haHandleText,
   notifyNewOrder,
   ADMIN_ROLES,

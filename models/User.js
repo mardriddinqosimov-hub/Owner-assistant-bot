@@ -18,6 +18,7 @@ const User = sequelize.define('User', {
   blocked:      { type: DataTypes.BOOLEAN, defaultValue: false },
   referral_balance: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
   card_info:        { type: DataTypes.STRING, allowNull: true },
+  block:            { type: DataTypes.STRING, allowNull: true },   // a | d | texas | missouri | first_a | first_b | a1 | b1 | c1
   deleted_at:       { type: DataTypes.DATE, allowNull: true },
   created_at: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   last_active: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
