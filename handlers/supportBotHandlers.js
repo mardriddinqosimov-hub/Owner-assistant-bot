@@ -3,6 +3,10 @@ const logger = require('../utils/logger');
 
 const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
 
+const getChatId = async (ctx) => {
+  await ctx.reply(`Chat ID: <code>${ctx.chat.id}</code>`, { parse_mode: 'HTML' });
+};
+
 const getTopicId = async (ctx) => {
   const threadId = ctx.message?.message_thread_id;
   if (threadId) {
@@ -103,4 +107,4 @@ const handleSupportText = async (ctx) => {
   }
 };
 
-module.exports = { supportStart, handleSupportText, getTopicId };
+module.exports = { supportStart, handleSupportText, getTopicId, getChatId };
