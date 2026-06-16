@@ -3,6 +3,15 @@ const logger = require('../utils/logger');
 
 const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-5568165011';
 
+const getTopicId = async (ctx) => {
+  const threadId = ctx.message?.message_thread_id;
+  if (threadId) {
+    await ctx.reply(`Thread ID: <code>${threadId}</code>`, { parse_mode: 'HTML' });
+  } else {
+    await ctx.reply('Send this command from inside a topic, not the General chat.');
+  }
+};
+
 const supportStart = async (ctx) => {
   await ctx.reply(
     `👋 <b>OA Support Bot</b>\n\n` +
@@ -20,13 +29,6 @@ const handleSupportText = async (ctx) => {
 
   const text = ctx.message.text?.trim();
   if (!text || text.startsWith('/')) return;
-
-  // TEMP: reply with thread ID so topics can be configured
-  const threadId = ctx.message.message_thread_id;
-  if (threadId) {
-    try { await ctx.reply(`🧵 Topic thread ID: <code>${threadId}</code>`, { parse_mode: 'HTML' }); } catch {}
-    return;
-  }
 
   // Only process replies — this is how members identify which case they're handling
   const repliedToId = ctx.message.reply_to_message?.message_id;
@@ -91,4 +93,4 @@ const handleSupportText = async (ctx) => {
   }
 };
 
-module.exports = { supportStart, handleSupportText };
+module.exports = { supportStart, handleSupportText, getTopicId };

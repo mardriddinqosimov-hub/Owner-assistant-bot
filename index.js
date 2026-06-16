@@ -266,6 +266,7 @@ function setupSupportBot() {
   }
   supportBot = new Telegraf(process.env.SUPPORT_BOT_TOKEN);
   supportBot.command('start', supportBotHandlers.supportStart);
+  supportBot.command('getid', supportBotHandlers.getTopicId);
   supportBot.on('text', supportBotHandlers.handleSupportText);
 }
 
