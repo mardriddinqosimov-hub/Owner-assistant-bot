@@ -172,6 +172,12 @@ router.post('/api/referral-payout', express.json(), async (req, res) => {
     if (ref.status === 'paid') return res.status(400).json({ error: 'Already processed' });
     if (ref.status !== 'confirmed') return res.status(400).json({ error: 'Referral must be confirmed before payout' });
 
+    // Block if owner has a pending withdrawal request to prevent double payment
+    const pendingWR = await WithdrawalRequest.findOne({ where: { owner_id: ref.owner_id, status: 'pending' } });
+    if (pendingWR) {
+      return res.status(409).json({ error: `Owner has a pending withdrawal request of $${parseFloat(pendingWR.amount).toFixed(2)}. Mark it done first before paying individually.` });
+    }
+
     await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
 
     const owner = await User.findByPk(ref.owner_id);

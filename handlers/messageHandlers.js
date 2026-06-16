@@ -167,13 +167,16 @@ const handleText = async (ctx) => {
     if (purpose === 'withdraw' && user) {
       const balance = parseFloat(user.referral_balance || 0);
       if (balance > 0) {
-        await WithdrawalRequest.create({
-          owner_id:  user.id,
-          amount:    balance,
-          card_info: cardInfo,
-          status:    'pending',
-          source:    'balance',
-        });
+        const existingPending = await WithdrawalRequest.findOne({ where: { owner_id: user.id, status: 'pending' } });
+        if (!existingPending) {
+          await WithdrawalRequest.create({
+            owner_id:  user.id,
+            amount:    balance,
+            card_info: cardInfo,
+            status:    'pending',
+            source:    'balance',
+          });
+        }
       }
       const acctBot = notifService.getAccountingBot();
       const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';

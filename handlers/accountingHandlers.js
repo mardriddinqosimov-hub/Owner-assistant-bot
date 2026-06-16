@@ -548,7 +548,18 @@ const acctRefPayout = async (ctx) => {
 
     const ref   = await Referral.findByPk(refId);
     if (!ref || ref.status === 'paid') return ctx.answerCbQuery('Already processed.');
+    if (ref.status !== 'confirmed') return ctx.answerCbQuery('Referral must be confirmed first.');
     await ctx.answerCbQuery();
+
+    // Block if owner already has a pending withdrawal request to prevent double payment
+    const WithdrawalRequest = require('../models/WithdrawalRequest');
+    const pendingWR = await WithdrawalRequest.findOne({ where: { owner_id: ref.owner_id, status: 'pending' } });
+    if (pendingWR) {
+      return ctx.editMessageText(
+        `⚠️ <b>Cannot Pay — Pending Withdrawal Exists</b>\n\nThis owner already has a pending withdrawal request of <b>$${parseFloat(pendingWR.amount).toFixed(2)}</b>.\n\nMark that withdrawal as done first, or cancel it before paying individually.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'acct_referrals' }]] } }
+      );
+    }
 
     const owner = await User.findByPk(ref.owner_id);
     const label = method === 'card' ? 'Card Payment' : 'Order Credit';
