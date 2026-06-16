@@ -261,8 +261,10 @@ const handleText = async (ctx) => {
         );
         await task.update({ support_message_id: sent.message_id });
       } catch (err) {
-        logger.warn('Failed to forward task to support:', err.message);
+        logger.error(`SUPPORT_SEND_FAIL chat=${SUPPORT_CHAT_ID} thread=${process.env.TOPIC_NEW_REQUEST || '2'} err=${err.message}`);
       }
+    } else {
+      logger.error('SUPPORT_SEND_FAIL: supportBot is null — SUPPORT_BOT_TOKEN missing or bot not initialized');
     }
 
     return ctx.reply(
