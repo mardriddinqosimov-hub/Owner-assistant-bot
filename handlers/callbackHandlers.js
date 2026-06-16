@@ -1304,20 +1304,20 @@ const refWithdrawCard = async (ctx) => {
         { reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } });
     }
 
-    if (!user.card_info) {
-      cardSessions.set(ctx.from.id, { purpose: 'withdraw' });
-      return ctx.editMessageText(
-        `💳 <b>Enter Your Card Number</b>\n\nTo withdraw <b>$${balance.toFixed(2)}</b>, please send your card number:\n\n<i>Example: 4111 1111 1111 1234</i>`,
-        { parse_mode: 'HTML' }
-      );
-    }
-
-    // Block duplicate pending requests
+    // Block duplicate pending requests (must check before card flow)
     const existing = await WithdrawalRequest.findOne({ where: { owner_id: user.id, status: 'pending' } });
     if (existing) {
       return ctx.editMessageText(
         `⏳ <b>Request Already Pending</b>\n\nYou already have a withdrawal request of <b>$${parseFloat(existing.amount).toFixed(2)}</b> being processed. Please wait for it to complete.`,
         { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'referral_menu' }]] } }
+      );
+    }
+
+    if (!user.card_info) {
+      cardSessions.set(ctx.from.id, { purpose: 'withdraw' });
+      return ctx.editMessageText(
+        `💳 <b>Enter Your Card Number</b>\n\nTo withdraw <b>$${balance.toFixed(2)}</b>, please send your card number:\n\n<i>Example: 4111 1111 1111 1234</i>`,
+        { parse_mode: 'HTML' }
       );
     }
 

@@ -297,21 +297,18 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
       await owner.update({ referral_balance: '0.00' });
 
       // Move all confirmed referrals to paid so they don't get paid again
+      const payoutMethod = wr.source === 'service_cover' ? 'service_cover' : 'card';
       await Referral.update(
-        { status: 'paid', payout_method: 'card', paid_at: new Date() },
+        { status: 'paid', payout_method: payoutMethod, paid_at: new Date() },
         { where: { owner_id: wr.owner_id, status: 'confirmed' } }
       );
 
       if (_bot) {
         try {
-          const last4 = wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????';
-          await _bot.telegram.sendMessage(
-            owner.telegram_id,
-            `💸 <b>Payment Sent!</b>\n\n` +
-            `<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been sent to your card ending in <b>${last4}</b>.\n\n` +
-            `Your new balance: <b>$${newBal.toFixed(2)}</b>`,
-            { parse_mode: 'HTML' }
-          );
+          const msg = wr.source === 'service_cover'
+            ? `✅ <b>Service Credit Applied!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been applied toward your service payment.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`
+            : `💸 <b>Payment Sent!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been sent to your card ending in <b>${wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????'}</b>.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`;
+          await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
         } catch {}
       }
     }
