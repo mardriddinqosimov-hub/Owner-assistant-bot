@@ -289,6 +289,26 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
     const wr = await WithdrawalRequest.findByPk(req.params.id);
     if (!wr) return res.status(404).json({ error: 'Not found' });
     await wr.update({ status: 'processed', processed_at: new Date() });
+
+    const owner = await User.findByPk(wr.owner_id);
+    if (owner) {
+      const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(wr.amount || 0));
+      await owner.update({ referral_balance: newBal.toFixed(2) });
+
+      if (_bot) {
+        try {
+          const last4 = wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????';
+          await _bot.telegram.sendMessage(
+            owner.telegram_id,
+            `💸 <b>Payment Sent!</b>\n\n` +
+            `<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been sent to your card ending in <b>${last4}</b>.\n\n` +
+            `Your new balance: <b>$${newBal.toFixed(2)}</b>`,
+            { parse_mode: 'HTML' }
+          );
+        } catch {}
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
