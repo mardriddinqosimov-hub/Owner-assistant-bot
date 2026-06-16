@@ -464,7 +464,16 @@ const haHandleText = async (ctx) => {
   let sent = 0, failed = 0;
   for (const u of users) {
     try {
-      await tg.sendMessage(u.telegram_id, `📢 <b>Message from Algo Group</b>\n\n${message}`, { parse_mode: 'HTML' });
+      await tg.sendMessage(
+        u.telegram_id,
+        `🚨🚨🚨 <b>IMPORTANT NOTICE</b> 🚨🚨🚨\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `📣 <b>Message from Algo Group:</b>\n\n` +
+        `${message}\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `⚠️ <i>Please read carefully and take action if needed.</i>`,
+        { parse_mode: 'HTML' }
+      );
       sent++;
     } catch {
       failed++;
