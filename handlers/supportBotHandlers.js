@@ -21,6 +21,13 @@ const handleSupportText = async (ctx) => {
   const text = ctx.message.text?.trim();
   if (!text || text.startsWith('/')) return;
 
+  // TEMP: reply with thread ID so topics can be configured
+  const threadId = ctx.message.message_thread_id;
+  if (threadId) {
+    try { await ctx.reply(`🧵 Topic thread ID: <code>${threadId}</code>`, { parse_mode: 'HTML' }); } catch {}
+    return;
+  }
+
   // Only process replies — this is how members identify which case they're handling
   const repliedToId = ctx.message.reply_to_message?.message_id;
   if (!repliedToId) return;
