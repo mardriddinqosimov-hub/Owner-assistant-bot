@@ -10,6 +10,17 @@ const WithdrawalRequest = sequelize.define('WithdrawalRequest', {
   source:       { type: DataTypes.STRING, allowNull: true },         // 'balance' | 'referral'
   created_at:   { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   processed_at: { type: DataTypes.DATE, allowNull: true },
-}, { tableName: 'withdrawal_requests', timestamps: false });
+}, {
+  tableName: 'withdrawal_requests',
+  timestamps: false,
+  indexes: [
+    {
+      unique: true,
+      fields: ['owner_id'],
+      where: { status: 'pending' },
+      name: 'unique_pending_withdrawal_per_owner',
+    },
+  ],
+});
 
 module.exports = WithdrawalRequest;
