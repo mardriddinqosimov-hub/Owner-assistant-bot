@@ -247,20 +247,30 @@ const handleText = async (ctx) => {
       if (supportBot) {
         let existingTopicId = existing.topic_id;
 
-        // Lazily create topic if the task was created before topics existed
         if (!existingTopicId) {
-          try {
-            const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${existing.owner_name || 'Owner'}`);
-            existingTopicId = topic.message_thread_id;
+          // Look for any prior topic this owner already has before creating a new one
+          const priorWithTopic = await SupportTask.findOne({
+            where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
+            order: [['created_at', 'DESC']],
+          });
+          if (priorWithTopic) {
+            existingTopicId = priorWithTopic.topic_id;
             await existing.update({ topic_id: existingTopicId });
-            await supportBot.telegram.sendMessage(
-              SUPPORT_CHAT_ID,
-              `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${existing.owner_name}</b>\n\n📝 Request:\n${existing.request_text || '(no text)'}`,
-              { parse_mode: 'HTML', message_thread_id: existingTopicId,
-                reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${existing.id}` }]] } }
-            );
-          } catch (err) {
-            logger.warn('Lazy topic creation (duplicate guard) failed:', err.message);
+          } else {
+            // Truly first-ever topic for this owner
+            try {
+              const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${existing.owner_name || 'Owner'}`);
+              existingTopicId = topic.message_thread_id;
+              await existing.update({ topic_id: existingTopicId });
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${existing.owner_name}</b>\n\n📝 Request:\n${existing.request_text || '(no text)'}`,
+                { parse_mode: 'HTML', message_thread_id: existingTopicId,
+                  reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${existing.id}` }]] } }
+              );
+            } catch (err) {
+              logger.warn('Lazy topic creation (duplicate guard) failed:', err.message);
+            }
           }
         }
 
@@ -392,20 +402,30 @@ const handleText = async (ctx) => {
       if (supBot) {
         let topicId = activeTask.topic_id;
 
-        // Lazily create topic if the task was created before topics existed
         if (!topicId) {
-          try {
-            const topic = await supBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${activeTask.owner_name || 'Owner'}`);
-            topicId = topic.message_thread_id;
+          // Find any existing topic this owner already has before creating a new one
+          const priorWithTopic = await SupportTask.findOne({
+            where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
+            order: [['created_at', 'DESC']],
+          });
+          if (priorWithTopic) {
+            topicId = priorWithTopic.topic_id;
             await activeTask.update({ topic_id: topicId });
-            await supBot.telegram.sendMessage(
-              SUPPORT_CHAT_ID,
-              `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${activeTask.owner_name}</b>\n\n📝 Request:\n${activeTask.request_text || '(no text)'}`,
-              { parse_mode: 'HTML', message_thread_id: topicId,
-                reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${activeTask.id}` }]] } }
-            );
-          } catch (err) {
-            logger.warn('Lazy topic creation (relay) failed:', err.message);
+          } else {
+            // Truly first-ever topic for this owner
+            try {
+              const topic = await supBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${activeTask.owner_name || 'Owner'}`);
+              topicId = topic.message_thread_id;
+              await activeTask.update({ topic_id: topicId });
+              await supBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${activeTask.owner_name}</b>\n\n📝 Request:\n${activeTask.request_text || '(no text)'}`,
+                { parse_mode: 'HTML', message_thread_id: topicId,
+                  reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${activeTask.id}` }]] } }
+              );
+            } catch (err) {
+              logger.warn('Lazy topic creation (relay) failed:', err.message);
+            }
           }
         }
 
