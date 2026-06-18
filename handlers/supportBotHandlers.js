@@ -121,11 +121,10 @@ const supDone = async (ctx) => {
   }
 };
 
-// Relay text messages from support topic → owner DM
+// Relay messages from support topic → owner DM (text, photo, document)
 const handleSupportTopicMessage = async (ctx) => {
   if (String(ctx.chat?.id) !== String(SUPPORT_CHAT_ID)) return;
-  if (!ctx.message?.text) return;
-  if (ctx.message.text.startsWith('/')) return;
+  if (ctx.message?.text?.startsWith('/')) return;
 
   const topicId = ctx.message.message_thread_id;
   if (!topicId) return;
