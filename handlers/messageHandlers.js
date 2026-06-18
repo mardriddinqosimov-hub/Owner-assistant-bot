@@ -245,6 +245,7 @@ const handleText = async (ctx) => {
       order: [['created_at', 'DESC']],
     });
     if (claimedTask) {
+      let relayed = false;
       if (supportBot) {
         let existingTopicId = claimedTask.topic_id;
         if (!existingTopicId) {
@@ -265,25 +266,30 @@ const handleText = async (ctx) => {
               `👤 <b>${senderName}:</b>\n${requestText}`,
               { parse_mode: 'HTML', message_thread_id: existingTopicId }
             );
+            relayed = true;
             if (claimedTask.claimed_telegram_id) {
               await supportBot.telegram.sendMessage(
                 SUPPORT_CHAT_ID,
                 `🔔 <a href="tg://user?id=${claimedTask.claimed_telegram_id}">${claimedTask.claimed_by || 'Support'}</a> — owner replied above`,
                 { parse_mode: 'HTML', message_thread_id: existingTopicId }
-              );
+              ).catch(() => {});
             }
           } catch (err) {
-            logger.warn('Owner→topic relay (specialTask duplicate) failed:', err.message);
+            logger.warn('Owner→topic relay (specialTask) failed — treating task as stale:', err.message);
           }
         }
       }
-      return ctx.reply(
-        `✅ <b>Message sent to support!</b>\n\nThe team will see it in your open request.`,
-        { parse_mode: 'HTML' }
-      );
+      if (relayed) {
+        return ctx.reply(
+          `✅ <b>Message sent to support!</b>\n\nThe team will see it in your open request.`,
+          { parse_mode: 'HTML' }
+        );
+      }
+      // Relay failed — task is stale; cancel it and fall through to create a fresh one
+      await claimedTask.update({ status: 'cancelled', updated_at: new Date() });
     }
 
-    // Owner explicitly started a new request — cancel any stale unclaimed tasks
+    // Cancel any remaining stale unclaimed tasks — owner wants a fresh start
     await SupportTask.update(
       { status: 'cancelled', updated_at: new Date() },
       { where: { owner_telegram_id: String(userId), status: 'pending' } }
