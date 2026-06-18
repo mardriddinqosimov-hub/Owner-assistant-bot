@@ -130,8 +130,9 @@ const handleSupportTopicMessage = async (ctx) => {
   const topicId = ctx.message.message_thread_id;
   if (!topicId) return;
 
+  const { Op } = require('sequelize');
   const task = await SupportTask.findOne({
-    where: { topic_id: topicId },
+    where: { topic_id: topicId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
     order: [['created_at', 'DESC']],
   });
   if (!task) return;
