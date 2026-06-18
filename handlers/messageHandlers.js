@@ -330,23 +330,28 @@ const handleText = async (ctx) => {
           await task.update({ topic_id: topicId });
         }
 
-        // Post the new request into the owner's topic
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
+        const requestMsgText =
           `🔔 <b>New Request</b>\n\n` +
           `👤 Owner: <b>${ownerLabel}</b>\n` +
           `🏢 Company: ${user.company_name || '—'}\n\n` +
-          `📝 Request:\n${requestText}`,
-          {
-            parse_mode: 'HTML',
-            message_thread_id: topicId,
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
-              ],
-            },
-          }
-        );
+          `📝 Request:\n${requestText}`;
+        const requestMsgOpts = {
+          parse_mode: 'HTML',
+          message_thread_id: topicId,
+          reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }]] },
+        };
+
+        // Post the new request into the owner's topic — if it fails, create a fresh topic and retry once
+        try {
+          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, requestMsgText, requestMsgOpts);
+        } catch (topicErr) {
+          logger.warn(`Topic ${topicId} is dead (${topicErr.message}) — creating a new one`);
+          const newTopic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+          topicId = newTopic.message_thread_id;
+          await task.update({ topic_id: topicId });
+          requestMsgOpts.message_thread_id = topicId;
+          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, requestMsgText, requestMsgOpts);
+        }
 
         // Escalation reminders: 30s, 2min, 5min
         setTimeout(async () => {

@@ -1496,29 +1496,38 @@ const specialTaskCall = async (ctx) => {
           callTopicId = topic.message_thread_id;
           await task.update({ topic_id: callTopicId });
         }
-        const topicId = callTopicId;
+        let topicId = callTopicId;
 
         const callUrl = username ? `https://t.me/${username}` : `tg://user?id=${ownerTgId}`;
 
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
+        const callMsgText =
           `📞 <b>Call Request</b>\n\n` +
           `👤 Owner: <b>${ownerLabel}</b>\n` +
           `🏢 Company: ${user.company_name || '—'}\n` +
           `🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n👤 Username: @${username}` : ''}\n\n` +
           `Claim the case, then tap <b>📞 Call Owner</b> to open their Telegram profile and call them directly.\n\n` +
-          `When done, type <b>Done #YourID</b> in this topic to close the case.`,
-          {
-            parse_mode: 'HTML',
-            message_thread_id: topicId,
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
-                [{ text: '📞 Call Owner', url: callUrl }],
-              ],
-            },
-          }
-        );
+          `When done, type <b>Done #YourID</b> in this topic to close the case.`;
+        const callMsgOpts = {
+          parse_mode: 'HTML',
+          message_thread_id: topicId,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
+              [{ text: '📞 Call Owner', url: callUrl }],
+            ],
+          },
+        };
+
+        try {
+          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, callMsgText, callMsgOpts);
+        } catch (topicErr) {
+          logger.warn(`Call topic ${topicId} is dead (${topicErr.message}) — creating a new one`);
+          const newTopic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+          topicId = newTopic.message_thread_id;
+          await task.update({ topic_id: topicId });
+          callMsgOpts.message_thread_id = topicId;
+          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, callMsgText, callMsgOpts);
+        }
 
         // Escalation reminders: 30s, 2min, 5min
         setTimeout(async () => {
