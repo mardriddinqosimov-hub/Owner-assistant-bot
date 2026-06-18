@@ -272,13 +272,6 @@ const handleText = async (ctx) => {
               { parse_mode: 'HTML', message_thread_id: existingTopicId }
             );
             relayed = true;
-            if (claimedTask.claimed_telegram_id) {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔔 <a href="tg://user?id=${claimedTask.claimed_telegram_id}">${claimedTask.claimed_by || 'Support'}</a> — owner replied above`,
-                { parse_mode: 'HTML', message_thread_id: existingTopicId }
-              ).catch(() => {});
-            }
           } catch (err) {
             logger.warn('Owner→topic relay (specialTask) failed — treating task as stale:', err.message);
           }
@@ -470,13 +463,6 @@ const handleText = async (ctx) => {
               { parse_mode: 'HTML', message_thread_id: topicId }
             );
             delivered = true;
-            if (activeTask.claimed_telegram_id) {
-              await supBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔔 <a href="tg://user?id=${activeTask.claimed_telegram_id}">${activeTask.claimed_by || 'Support'}</a> — owner replied above`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              ).catch(() => {});
-            }
           } catch (err) {
             logger.warn('Owner→topic relay failed:', err.message);
           }
@@ -505,9 +491,31 @@ async function relaySupportMedia(ctx, fileId, type) {
   const activeTask = await SupportTask.findOne({
     where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
   });
-  if (!activeTask?.topic_id) return false;
+  if (!activeTask) return false;
   const supBot = getSupportBot();
   if (!supBot) return false;
+
+  // Recover missing topic_id — same logic as text relay path
+  if (!activeTask.topic_id) {
+    const priorWithTopic = await SupportTask.findOne({
+      where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
+      order: [['created_at', 'DESC']],
+    });
+    if (priorWithTopic) {
+      await activeTask.update({ topic_id: priorWithTopic.topic_id });
+    } else {
+      try {
+        const ownerLabel = activeTask.owner_name || 'Owner';
+        const topic = await supBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+        await activeTask.update({ topic_id: topic.message_thread_id });
+      } catch (err) {
+        logger.warn('Media relay: lazy topic creation failed:', err.message);
+        return false;
+      }
+    }
+    await activeTask.reload();
+  }
+  if (!activeTask.topic_id) return false;
   const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
   const caption = `👤 <b>${senderName}:</b>`;
   try {
