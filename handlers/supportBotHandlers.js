@@ -144,9 +144,42 @@ const handleSupportTopicMessage = async (ctx) => {
   const mainBot = getMainBot();
   if (!mainBot) return;
 
-  const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ')
-    || ctx.from.username
-    || 'Support';
+  // Detect "Done #XXXX" — extract member ID and trigger done flow
+  const doneMatch = ctx.message.text.match(/^Done\s+#(\S+)/i);
+  if (doneMatch) {
+    const memberId = doneMatch[1]; // e.g. "M450"
+    await task.update({ member_id: memberId, status: 'awaiting_approval', updated_at: new Date() });
+
+    // Acknowledge in topic
+    try {
+      await ctx.telegram.sendMessage(
+        SUPPORT_CHAT_ID,
+        `✅ Logged member ID <b>#${memberId}</b>. Waiting for owner confirmation…`,
+        { parse_mode: 'HTML', message_thread_id: topicId,
+          reply_markup: { inline_keyboard: [[{ text: '⏳ Waiting for owner confirmation…', callback_data: 'noop' }]] } }
+      );
+    } catch {}
+
+    // Ask owner to confirm
+    try {
+      await mainBot.telegram.sendMessage(
+        task.owner_telegram_id,
+        `✅ <b>Has your request been fully resolved?</b>`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${task.id}` }],
+              [{ text: '❌ Not Yet',         callback_data: `task_not_done_${task.id}` }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      logger.warn('Done trigger owner notify failed:', err.message);
+    }
+    return;
+  }
 
   try {
     await mainBot.telegram.sendMessage(

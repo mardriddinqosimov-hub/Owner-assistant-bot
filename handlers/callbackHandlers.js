@@ -1593,7 +1593,7 @@ const taskOwnerApproved = async (ctx) => {
       const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
       const closedAt = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
       const handledBy = task.claimed_by || '—';
-      const handlerId = task.claimed_telegram_id ? `<code>${task.claimed_telegram_id}</code>` : '—';
+      const memberId  = task.member_id ? `#${task.member_id}` : '—';
       try {
         await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
@@ -1601,7 +1601,7 @@ const taskOwnerApproved = async (ctx) => {
           `👤 Owner: <b>${task.owner_name}</b>\n` +
           `📝 Request: ${task.request_text || '—'}\n\n` +
           `🛠 Handled by: <b>${handledBy}</b>\n` +
-          `🆔 Member ID: ${handlerId}\n` +
+          `🆔 Member ID: <b>${memberId}</b>\n` +
           `🕐 Closed at: ${closedAt}`,
           { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
         );
