@@ -1601,8 +1601,6 @@ const taskOwnerApproved = async (ctx) => {
           `✅ <b>Case Fully Closed</b>\n\nOwner confirmed the request is fully done.`,
           { parse_mode: 'HTML', message_thread_id: task.topic_id }
         );
-        await supportBot.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `✅ ${task.owner_name}` });
-        await supportBot.telegram.closeForumTopic(SUPPORT_CHAT_ID, task.topic_id);
       } catch (err) {
         logger.warn('Close topic failed:', err.message);
       }
@@ -1780,8 +1778,6 @@ const cancelSupportSession = async (ctx) => {
           `❌ <b>Session Cancelled</b>\n\nOwner cancelled this request.`,
           { parse_mode: 'HTML', message_thread_id: task.topic_id }
         );
-        await supportBot.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `❌ ${task.owner_name}` });
-        await supportBot.telegram.closeForumTopic(SUPPORT_CHAT_ID, task.topic_id);
       } catch (err) {
         logger.warn('cancelSupportSession topic close failed:', err.message);
       }

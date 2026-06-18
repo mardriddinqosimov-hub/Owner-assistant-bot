@@ -49,15 +49,6 @@ const supClaim = async (ctx) => {
     updated_at:          new Date(),
   });
 
-  // Rename topic to ⏳
-  if (task.topic_id) {
-    try {
-      await ctx.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `⏳ ${task.owner_name}` });
-    } catch (err) {
-      logger.warn('editForumTopic (claim) failed:', err.message);
-    }
-  }
-
   // Replace Claim button with claimed status + Mark Done button
   try {
     await ctx.editMessageReplyMarkup({
@@ -139,9 +130,9 @@ const handleSupportTopicMessage = async (ctx) => {
   const topicId = ctx.message.message_thread_id;
   if (!topicId) return;
 
-  const { Op } = require('sequelize');
   const task = await SupportTask.findOne({
-    where: { topic_id: topicId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    where: { topic_id: topicId },
+    order: [['created_at', 'DESC']],
   });
   if (!task) return;
 

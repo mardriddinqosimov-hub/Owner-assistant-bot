@@ -271,6 +271,13 @@ const handleText = async (ctx) => {
 
     const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
 
+    // Find this owner's permanent topic (any past task that has a topic_id)
+    const priorTask = await SupportTask.findOne({
+      where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
+      order: [['created_at', 'DESC']],
+    });
+    let topicId = priorTask?.topic_id || null;
+
     const task = await SupportTask.create({
       owner_user_id:     user.id,
       owner_telegram_id: String(userId),
@@ -278,18 +285,21 @@ const handleText = async (ctx) => {
       type:              'message',
       request_text:      requestText,
       status:            'pending',
+      topic_id:          topicId,
       created_at:        new Date(),
       updated_at:        new Date(),
     });
 
     if (supportBot) {
       try {
-        // Create a dedicated forum topic for this owner
-        const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-        const topicId = topic.message_thread_id;
-        await task.update({ topic_id: topicId });
+        if (!topicId) {
+          // First-ever request from this owner — create their permanent topic
+          const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+          topicId = topic.message_thread_id;
+          await task.update({ topic_id: topicId });
+        }
 
-        // Post the request inside the topic with a Claim button
+        // Post the new request into the owner's topic
         await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
           `🔔 <b>New Request</b>\n\n` +
@@ -307,7 +317,7 @@ const handleText = async (ctx) => {
           }
         );
 
-        // #5 — 30s unclaimed reminder
+        // 30s unclaimed reminder
         setTimeout(async () => {
           try {
             const fresh = await SupportTask.findByPk(task.id);
@@ -322,12 +332,11 @@ const handleText = async (ctx) => {
         }, 30 * 1000);
 
       } catch (err) {
-        logger.error(`Support topic creation failed (task ${task.id}): ${err.message}`);
-        // Fallback: post to General topic so request is not lost
+        logger.error(`Support topic post failed (task ${task.id}): ${err.message}`);
         try {
           await supportBot.telegram.sendMessage(
             SUPPORT_CHAT_ID,
-            `⚠️ <b>New Request</b> (topic creation failed — make support bot admin with Manage Topics)\n\n` +
+            `⚠️ <b>New Request</b> (topic post failed)\n\n` +
             `👤 Owner: <b>${ownerLabel}</b>\n` +
             `🏢 Company: ${user.company_name || '—'}\n\n` +
             `📝 Request:\n${requestText}\n\n` +
