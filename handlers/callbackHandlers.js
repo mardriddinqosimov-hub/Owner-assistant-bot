@@ -1588,6 +1588,26 @@ const taskOwnerApproved = async (ctx) => {
       } catch (err) {
         logger.warn('Close topic failed:', err.message);
       }
+
+      // Post case summary to Fully Done topic
+      const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
+      const closedAt = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      const handledBy = task.claimed_by || '—';
+      const handlerId = task.claimed_telegram_id ? `<code>${task.claimed_telegram_id}</code>` : '—';
+      try {
+        await supportBot.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `✅ <b>Case Closed</b>\n\n` +
+          `👤 Owner: <b>${task.owner_name}</b>\n` +
+          `📝 Request: ${task.request_text || '—'}\n\n` +
+          `🛠 Handled by: <b>${handledBy}</b>\n` +
+          `🆔 Member ID: ${handlerId}\n` +
+          `🕐 Closed at: ${closedAt}`,
+          { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
+        );
+      } catch (err) {
+        logger.warn('Fully Done topic post failed:', err.message);
+      }
     }
 
     await ctx.editMessageText(
