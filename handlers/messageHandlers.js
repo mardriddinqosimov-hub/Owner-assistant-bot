@@ -331,11 +331,43 @@ const handleText = async (ctx) => {
   await ctx.reply('Use /help to see available commands.');
 };
 
+// Relay owner photo/document to active support topic
+async function relaySupportMedia(ctx, fileId, type) {
+  const userId = ctx.from.id;
+  const SupportTask = require('../models/SupportTask');
+  const { getSupportBot } = require('../services/notificationService');
+  const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
+  const activeTask = await SupportTask.findOne({
+    where: { owner_telegram_id: String(userId), status: 'in_process' },
+  });
+  if (!activeTask?.topic_id) return false;
+  const supBot = getSupportBot();
+  if (!supBot) return false;
+  const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
+  const caption = `👤 <b>${senderName}:</b>`;
+  try {
+    if (type === 'photo') {
+      await supBot.telegram.sendPhoto(SUPPORT_CHAT_ID, fileId,
+        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+    } else {
+      await supBot.telegram.sendDocument(SUPPORT_CHAT_ID, fileId,
+        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+    }
+  } catch (err) {
+    logger.warn('Owner→topic media relay failed:', err.message);
+  }
+  return true;
+}
+
 const handlePhoto = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
   const session = orderSessions.get(userId);
-  if (!session || session.step !== 'payment') return;
+  if (!session || session.step !== 'payment') {
+    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    await relaySupportMedia(ctx, fileId, 'photo');
+    return;
+  }
 
   try {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -352,8 +384,13 @@ const handleDocument = async (ctx) => {
   const userId = ctx.from.id;
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') {
-    logger.debug(`Document from ${userId} (no active payment session)`);
-    return ctx.reply('Use /help to see available commands.');
+    const fileId = ctx.message.document.file_id;
+    const relayed = await relaySupportMedia(ctx, fileId, 'document');
+    if (!relayed) {
+      logger.debug(`Document from ${userId} (no active payment or support session)`);
+      await ctx.reply('Use /help to see available commands.');
+    }
+    return;
   }
 
   try {

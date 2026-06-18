@@ -144,6 +144,24 @@ const handleSupportTopicMessage = async (ctx) => {
   const mainBot = getMainBot();
   if (!mainBot) return;
 
+  // ── Photo/document relay: topic → owner DM ──────────────────────────────────
+  if (!ctx.message.text) {
+    const caption = ctx.message.caption || '';
+    try {
+      if (ctx.message.photo) {
+        const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        await mainBot.telegram.sendPhoto(task.owner_telegram_id, fileId,
+          { caption: caption ? `💬 <b>Support:</b>\n${caption}` : undefined, parse_mode: 'HTML' });
+      } else if (ctx.message.document) {
+        await mainBot.telegram.sendDocument(task.owner_telegram_id, ctx.message.document.file_id,
+          { caption: caption ? `💬 <b>Support:</b>\n${caption}` : undefined, parse_mode: 'HTML' });
+      }
+    } catch (err) {
+      logger.warn('Topic→owner media relay failed:', err.message);
+    }
+    return;
+  }
+
   // Detect "Done #XXXX" — extract member ID and trigger done flow
   const doneMatch = ctx.message.text.match(/^Done\s+#(\S+)/i);
   if (doneMatch) {
