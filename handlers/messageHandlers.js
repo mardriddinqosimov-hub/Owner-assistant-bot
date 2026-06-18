@@ -276,7 +276,21 @@ const handleText = async (ctx) => {
           }
         );
       } catch (err) {
-        logger.error('Support topic creation failed:', err.message);
+        logger.error(`Support topic creation failed (task ${task.id}): ${err.message}`);
+        // Fallback: post to General topic so request is not lost
+        try {
+          await supportBot.telegram.sendMessage(
+            SUPPORT_CHAT_ID,
+            `⚠️ <b>New Request</b> (topic creation failed — make support bot admin with Manage Topics)\n\n` +
+            `👤 Owner: <b>${ownerLabel}</b>\n` +
+            `🏢 Company: ${user.company_name || '—'}\n\n` +
+            `📝 Request:\n${requestText}\n\n` +
+            `Task ID: <code>${task.id}</code>`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (fallbackErr) {
+          logger.error('Support fallback send also failed:', fallbackErr.message);
+        }
       }
     } else {
       logger.error('SUPPORT_SEND_FAIL: supportBot is null');
