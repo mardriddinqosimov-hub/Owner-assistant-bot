@@ -1451,15 +1451,17 @@ const specialTaskCall = async (ctx) => {
     if (!user) return ctx.reply('Please /start first.');
 
     const SupportTask = require('../models/SupportTask');
-    const { getSupportBot, getMainBot } = require('../services/notificationService');
+    const { getSupportBot } = require('../services/notificationService');
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
     const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
+    const ownerTgId  = String(ctx.from.id);
+    const username   = ctx.from.username;
 
     const task = await SupportTask.create({
       owner_user_id:     user.id,
-      owner_telegram_id: String(ctx.from.id),
+      owner_telegram_id: ownerTgId,
       owner_name:        ownerLabel,
       type:              'call',
       status:            'pending',
@@ -1467,59 +1469,50 @@ const specialTaskCall = async (ctx) => {
       updated_at:        new Date(),
     });
 
-    // Notify support
     if (supportBot) {
       try {
-        const sent = await supportBot.telegram.sendMessage(
+        const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `📞 ${ownerLabel}`);
+        const topicId = topic.message_thread_id;
+        await task.update({ topic_id: topicId });
+
+        const callUrl = username ? `https://t.me/${username}` : `tg://user?id=${ownerTgId}`;
+
+        await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
-          `🔔 <b>New Call Request</b>\n\n` +
+          `📞 <b>Call Request</b>\n\n` +
           `👤 Owner: <b>${ownerLabel}</b>\n` +
-          `🏢 Company: ${user.company_name || '—'}\n\n` +
-          `📞 Owner is calling you now.`,
-          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_NEW_REQUEST || '2') }
+          `🏢 Company: ${user.company_name || '—'}\n` +
+          `🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n👤 Username: @${username}` : ''}\n\n` +
+          `Claim the case, then tap <b>📞 Call Owner</b> to open their Telegram profile and call them directly.\n\n` +
+          `When done, type <b>Done #YourID</b> in this topic to close the case.`,
+          {
+            parse_mode: 'HTML',
+            message_thread_id: topicId,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Claim Case',   callback_data: `sup_claim_${task.id}` }],
+                [{ text: '📞 Call Owner',   url: callUrl }],
+              ],
+            },
+          }
         );
-        await task.update({ support_message_id: sent.message_id });
-      } catch (err) { logger.warn('Call notify to support failed:', err.message); }
+      } catch (err) {
+        logger.error(`Call topic creation failed (task ${task.id}): ${err.message}`);
+        try {
+          await supportBot.telegram.sendMessage(
+            SUPPORT_CHAT_ID,
+            `⚠️ <b>Call Request</b> (topic creation failed)\n\n` +
+            `👤 Owner: <b>${ownerLabel}</b>\n🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n@${username}` : ''}`,
+            { parse_mode: 'HTML' }
+          );
+        } catch {}
+      }
     }
 
     await ctx.editMessageText(
-      `📞 <b>Support has been notified!</b>\n\nIs the call ended?`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '✅ Yes, Call Ended', callback_data: `task_call_ended_${task.id}` }],
-          ],
-        },
-      }
+      `📞 <b>Call request sent!</b>\n\nThe support team has been notified and will call you on Telegram shortly. Stay available!`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
     );
-
-    // Ask owner every 60 s until they confirm
-    const mainBot = getMainBot();
-    if (mainBot) {
-      const iv = setInterval(async () => {
-        const current = await SupportTask.findByPk(task.id);
-        if (!current || current.status !== 'pending') {
-          clearInterval(iv);
-          callPollIntervals.delete(task.id);
-          return;
-        }
-        try {
-          await mainBot.telegram.sendMessage(
-            ctx.from.id,
-            `📞 Is the call ended?`,
-            {
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: '✅ Yes, Call Ended', callback_data: `task_call_ended_${task.id}` }],
-                ],
-              },
-            }
-          );
-        } catch {}
-      }, 60 * 1000);
-      callPollIntervals.set(task.id, iv);
-    }
   } catch (err) { logger.error('specialTaskCall error:', err); }
 };
 
