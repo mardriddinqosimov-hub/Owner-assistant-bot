@@ -238,14 +238,33 @@ const handleText = async (ctx) => {
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
-    // #2 Duplicate guard
+    // #2 Duplicate guard — relay the message to the existing topic instead of blocking it
     const { Op } = require('sequelize');
     const existing = await SupportTask.findOne({
       where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
     });
     if (existing) {
+      if (existing.topic_id && supportBot) {
+        const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
+        try {
+          await supportBot.telegram.sendMessage(
+            SUPPORT_CHAT_ID,
+            `👤 <b>${senderName}:</b>\n${requestText}`,
+            { parse_mode: 'HTML', message_thread_id: existing.topic_id }
+          );
+          if (existing.claimed_telegram_id) {
+            await supportBot.telegram.sendMessage(
+              SUPPORT_CHAT_ID,
+              `🔔 <a href="tg://user?id=${existing.claimed_telegram_id}">${existing.claimed_by || 'Support'}</a> — owner replied above`,
+              { parse_mode: 'HTML', message_thread_id: existing.topic_id }
+            );
+          }
+        } catch (err) {
+          logger.warn('Owner→topic relay (specialTask duplicate) failed:', err.message);
+        }
+      }
       return ctx.reply(
-        `⚠️ <b>You already have an open support request.</b>\n\nJust type here and your message goes directly to the support team.`,
+        `✅ <b>Message sent to support!</b>\n\nThe team will see it in your open request.`,
         { parse_mode: 'HTML' }
       );
     }
