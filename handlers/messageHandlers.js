@@ -253,32 +253,65 @@ const handleText = async (ctx) => {
 
     if (supportBot) {
       try {
-        const sent = await supportBot.telegram.sendMessage(
+        // Create a dedicated forum topic for this owner
+        const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+        const topicId = topic.message_thread_id;
+        await task.update({ topic_id: topicId });
+
+        // Post the request inside the topic with a Claim button
+        await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
           `🔔 <b>New Request</b>\n\n` +
           `👤 Owner: <b>${ownerLabel}</b>\n` +
           `🏢 Company: ${user.company_name || '—'}\n\n` +
-          `📝 Request:\n${requestText}\n\n` +
-          `<i>Reply to this message with: <code>done [yourMemberID]</code></i>`,
-          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_NEW_REQUEST || '2') }
+          `📝 Request:\n${requestText}`,
+          {
+            parse_mode: 'HTML',
+            message_thread_id: topicId,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
+              ],
+            },
+          }
         );
-        await task.update({ support_message_id: sent.message_id });
       } catch (err) {
-        const newId = err.response?.parameters?.migrate_to_chat_id;
-        if (newId) {
-          logger.error(`SUPPORT_SEND_FAIL: group migrated to supergroup. NEW_CHAT_ID=${newId}`);
-        } else {
-          logger.error(`SUPPORT_SEND_FAIL chat=${SUPPORT_CHAT_ID} thread=${process.env.TOPIC_NEW_REQUEST || '2'} err=${err.message}`);
-        }
+        logger.error('Support topic creation failed:', err.message);
       }
     } else {
       logger.error('SUPPORT_SEND_FAIL: supportBot is null');
     }
 
     return ctx.reply(
-      `✅ <b>Request sent to support!</b>\n\nThe team will handle it shortly. You'll be notified here when it's done.`,
+      `✅ <b>Request sent to support!</b>\n\nThe team will handle it shortly. Feel free to send more details here — they'll appear in your support thread.`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
     );
+  }
+
+  // ── Active support session: relay owner messages to the support topic ──────
+  {
+    const SupportTask = require('../models/SupportTask');
+    const { getSupportBot } = require('../services/notificationService');
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
+    const activeTask = await SupportTask.findOne({
+      where: { owner_telegram_id: String(userId), status: 'in_process' },
+    });
+    if (activeTask?.topic_id) {
+      const supBot = getSupportBot();
+      if (supBot) {
+        const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
+        try {
+          await supBot.telegram.sendMessage(
+            SUPPORT_CHAT_ID,
+            `👤 <b>${senderName}:</b>\n${ctx.message.text}`,
+            { parse_mode: 'HTML', message_thread_id: activeTask.topic_id }
+          );
+        } catch (err) {
+          logger.warn('Owner→topic relay failed:', err.message);
+        }
+        return;
+      }
+    }
   }
 
   await ctx.reply('Use /help to see available commands.');

@@ -273,7 +273,10 @@ function setupSupportBot() {
   supportBot.command('start', supportBotHandlers.supportStart);
   supportBot.command('chatid', supportBotHandlers.getChatId);
   supportBot.command('getid', supportBotHandlers.getTopicId);
-  supportBot.on('text', supportBotHandlers.handleSupportText);
+  supportBot.action('noop', ctx => ctx.answerCbQuery());
+  supportBot.action(/^sup_claim_(\d+)$/, supportBotHandlers.supClaim);
+  supportBot.action(/^sup_done_(\d+)$/,  supportBotHandlers.supDone);
+  supportBot.on('message', supportBotHandlers.handleSupportTopicMessage);
 }
 
 // ─── GPS vehicle polling (every 30 sec) ───────────────────────────────────────

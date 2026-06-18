@@ -1576,17 +1576,18 @@ const taskOwnerApproved = async (ctx) => {
 
     await task.update({ status: 'closed', updated_at: new Date() });
 
-    if (supportBot) {
+    if (supportBot && task.topic_id) {
       try {
         await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
-          `✅ <b>Case Fully Closed</b>\n\n` +
-          `👤 Owner: <b>${task.owner_name}</b>\n` +
-          `🏆 Handled by Member ID: <b>${task.member_id || '—'}</b>\n\n` +
-          `Owner confirmed the request is fully done.`,
-          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_FULLY_DONE || '7') }
+          `✅ <b>Case Fully Closed</b>\n\nOwner confirmed the request is fully done.`,
+          { parse_mode: 'HTML', message_thread_id: task.topic_id }
         );
-      } catch {}
+        await supportBot.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `✅ ${task.owner_name}` });
+        await supportBot.telegram.closeForumTopic(SUPPORT_CHAT_ID, task.topic_id);
+      } catch (err) {
+        logger.warn('Close topic failed:', err.message);
+      }
     }
 
     await ctx.editMessageText(
@@ -1609,17 +1610,22 @@ const taskNotDone = async (ctx) => {
     const task = await SupportTask.findByPk(taskId);
     if (!task) return;
 
-    // Reset so support can try again
-    await task.update({ status: 'pending', member_id: null, updated_at: new Date() });
+    await task.update({ status: 'in_process', updated_at: new Date() });
 
-    if (supportBot) {
+    if (supportBot && task.topic_id) {
       try {
         await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
-          `⚠️ <b>Request Not Yet Done</b>\n\n` +
-          `👤 Owner: <b>${task.owner_name}</b> says the request is not fully done.\n\n` +
-          `Please continue and reply to the original request message with <code>done [yourID]</code> when complete.`,
-          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
+          `⚠️ <b>Owner says request is not done yet.</b>\n\nPlease continue and click "Mark as Done" when fully resolved.`,
+          {
+            parse_mode: 'HTML',
+            message_thread_id: task.topic_id,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Mark as Done', callback_data: `sup_done_${taskId}` }],
+              ],
+            },
+          }
         );
       } catch {}
     }

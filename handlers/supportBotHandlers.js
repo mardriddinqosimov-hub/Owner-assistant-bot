@@ -1,7 +1,19 @@
 const SupportTask = require('../models/SupportTask');
 const logger = require('../utils/logger');
+const { getMainBot } = require('../services/notificationService');
 
 const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
+
+const supportStart = async (ctx) => {
+  await ctx.reply(
+    `👋 <b>OA Support Bot</b>\n\n` +
+    `You'll receive owner requests here as dedicated topics.\n\n` +
+    `Click <b>✅ Claim Case</b> on a request to take it.\n` +
+    `Then chat directly in the topic — messages relay to the owner.\n` +
+    `Click <b>✅ Mark as Done</b> when the issue is resolved.`,
+    { parse_mode: 'HTML' }
+  );
+};
 
 const getChatId = async (ctx) => {
   await ctx.reply(`Chat ID: <code>${ctx.chat.id}</code>`, { parse_mode: 'HTML' });
@@ -16,95 +28,135 @@ const getTopicId = async (ctx) => {
   }
 };
 
-const supportStart = async (ctx) => {
-  await ctx.reply(
-    `👋 <b>OA Support Bot</b>\n\n` +
-    `You'll receive owner requests here.\n\n` +
-    `📩 <b>Message requests:</b>\n` +
-    `Reply to the request message with:\n<code>done [yourMemberID]</code>\n\n` +
-    `📞 <b>Call requests:</b>\n` +
-    `After the call ends, reply to the "Enter your ID" message with your Member ID.`,
-    { parse_mode: 'HTML' }
-  );
-};
+// Support member clicks "✅ Claim Case"
+const supClaim = async (ctx) => {
+  const taskId = parseInt(ctx.match[1], 10);
+  const task = await SupportTask.findByPk(taskId);
 
-const handleSupportText = async (ctx) => {
-  if (String(ctx.chat.id) !== String(SUPPORT_CHAT_ID)) return;
+  if (!task || task.status !== 'pending') {
+    return ctx.answerCbQuery('⚠️ Already claimed or closed.', { show_alert: true });
+  }
 
-  const text = ctx.message.text?.trim();
-  if (!text || text.startsWith('/')) return;
+  const claimerName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ')
+    || ctx.from.username
+    || `ID ${ctx.from.id}`;
 
-  // Only process replies — this is how members identify which case they're handling
-  const repliedToId = ctx.message.reply_to_message?.message_id;
-  if (!repliedToId) return;
-
-  const { getMainBot } = require('../services/notificationService');
-  const mainBot = getMainBot();
-
-  // Only process replies that start with "done [memberID]"
-  if (!text.toLowerCase().startsWith('done ')) return;
-  const memberId = text.slice(5).trim();
-  if (!memberId) return;
-
-  // ── Case 1: Support marking a message task done ───────────────────────────
-  const messageTask = await SupportTask.findOne({
-    where: { support_message_id: repliedToId, status: 'pending', type: 'message' },
+  await task.update({
+    status:              'in_process',
+    claimed_by:          claimerName,
+    claimed_telegram_id: String(ctx.from.id),
+    updated_at:          new Date(),
   });
 
-  if (messageTask) {
-    await messageTask.update({ member_id: memberId, status: 'awaiting_approval', updated_at: new Date() });
-
-    if (mainBot) {
-      try {
-        await mainBot.telegram.sendMessage(
-          messageTask.owner_telegram_id,
-          `✅ <b>Your request has been handled!</b>\n\nIs your request fully done?`,
-          {
-            parse_mode: 'HTML',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${messageTask.id}` }],
-                [{ text: '❌ Not Yet',         callback_data: `task_not_done_${messageTask.id}` }],
-              ],
-            },
-          }
-        );
-      } catch (err) {
-        logger.warn('Failed to notify owner for message task:', err.message);
-      }
+  // Rename topic to ⏳
+  if (task.topic_id) {
+    try {
+      await ctx.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `⏳ ${task.owner_name}` });
+    } catch (err) {
+      logger.warn('editForumTopic (claim) failed:', err.message);
     }
-
-    try {
-      await ctx.telegram.sendMessage(
-        SUPPORT_CHAT_ID,
-        `⏙️ <b>In Process</b>\n\n` +
-        `👤 Owner: <b>${messageTask.owner_name}</b>\n` +
-        `🔖 Member ID: <b>${memberId}</b>\n\n` +
-        `Waiting for owner to confirm the request is done.`,
-        { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
-      );
-    } catch {}
-    return;
   }
 
-  // ── Case 2: Support entering ID after call ended ──────────────────────────
-  const callTask = await SupportTask.findOne({
-    where: { followup_message_id: repliedToId, status: 'call_ended' },
-  });
+  // Replace Claim button with claimed status + Mark Done button
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [{ text: `👤 Claimed by ${claimerName}`, callback_data: 'noop' }],
+        [{ text: '✅ Mark as Done', callback_data: `sup_done_${taskId}` }],
+      ],
+    });
+  } catch {}
 
-  if (callTask) {
-    await callTask.update({ member_id: memberId, status: 'closed', updated_at: new Date() });
+  await ctx.answerCbQuery('Case claimed!');
 
+  // Notify owner
+  const mainBot = getMainBot();
+  if (mainBot) {
     try {
-      await ctx.telegram.sendMessage(
-        SUPPORT_CHAT_ID,
-        `✅ <b>Case Fully Closed</b>\n\n` +
-        `📞 Call — handled by Member ID: <b>${memberId}</b>\n` +
-        `👤 Owner: <b>${callTask.owner_name}</b>`,
-        { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_FULLY_DONE || '7') }
+      await mainBot.telegram.sendMessage(
+        task.owner_telegram_id,
+        `⏳ <b>Support team picked up your request!</b>\n\nA team member is working on it. Feel free to send more details here anytime.`,
+        { parse_mode: 'HTML' }
       );
-    } catch {}
+    } catch (err) {
+      logger.warn('Owner claim notify failed:', err.message);
+    }
   }
 };
 
-module.exports = { supportStart, handleSupportText, getTopicId, getChatId };
+// Support member clicks "✅ Mark as Done"
+const supDone = async (ctx) => {
+  const taskId = parseInt(ctx.match[1], 10);
+  const task = await SupportTask.findByPk(taskId);
+
+  if (!task || task.status !== 'in_process') {
+    return ctx.answerCbQuery('⚠️ Case not active.', { show_alert: true });
+  }
+
+  await task.update({ status: 'awaiting_approval', updated_at: new Date() });
+
+  // Replace button with waiting indicator
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [{ text: '⏳ Waiting for owner confirmation…', callback_data: 'noop' }],
+      ],
+    });
+  } catch {}
+
+  await ctx.answerCbQuery('Waiting for owner to confirm.');
+
+  // Ask owner to confirm
+  const mainBot = getMainBot();
+  if (mainBot) {
+    try {
+      await mainBot.telegram.sendMessage(
+        task.owner_telegram_id,
+        `✅ <b>Has your request been fully resolved?</b>`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${taskId}` }],
+              [{ text: '❌ Not Yet',         callback_data: `task_not_done_${taskId}` }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      logger.warn('supDone owner notify failed:', err.message);
+    }
+  }
+};
+
+// Relay text messages from support topic → owner DM
+const handleSupportTopicMessage = async (ctx) => {
+  if (String(ctx.chat?.id) !== String(SUPPORT_CHAT_ID)) return;
+  if (!ctx.message?.text) return;
+  if (ctx.message.text.startsWith('/')) return;
+
+  const topicId = ctx.message.message_thread_id;
+  if (!topicId) return;
+
+  const task = await SupportTask.findOne({ where: { topic_id: topicId, status: 'in_process' } });
+  if (!task) return;
+
+  const mainBot = getMainBot();
+  if (!mainBot) return;
+
+  const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ')
+    || ctx.from.username
+    || 'Support';
+
+  try {
+    await mainBot.telegram.sendMessage(
+      task.owner_telegram_id,
+      `💬 <b>Support:</b>\n${ctx.message.text}`,
+      { parse_mode: 'HTML' }
+    );
+  } catch (err) {
+    logger.warn('Topic→owner relay failed:', err.message);
+  }
+};
+
+module.exports = { supportStart, getChatId, getTopicId, supClaim, supDone, handleSupportTopicMessage };
