@@ -139,7 +139,10 @@ const handleSupportTopicMessage = async (ctx) => {
   const topicId = ctx.message.message_thread_id;
   if (!topicId) return;
 
-  const task = await SupportTask.findOne({ where: { topic_id: topicId, status: 'in_process' } });
+  const { Op } = require('sequelize');
+  const task = await SupportTask.findOne({
+    where: { topic_id: topicId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+  });
   if (!task) return;
 
   const mainBot = getMainBot();

@@ -332,10 +332,11 @@ const handleText = async (ctx) => {
   // ── Active support session: relay owner messages to the support topic ──────
   {
     const SupportTask = require('../models/SupportTask');
+    const { Op } = require('sequelize');
     const { getSupportBot } = require('../services/notificationService');
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const activeTask = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), status: 'in_process' },
+      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
     });
     if (activeTask?.topic_id) {
       const supBot = getSupportBot();
@@ -370,10 +371,11 @@ const handleText = async (ctx) => {
 async function relaySupportMedia(ctx, fileId, type) {
   const userId = ctx.from.id;
   const SupportTask = require('../models/SupportTask');
+  const { Op } = require('sequelize');
   const { getSupportBot } = require('../services/notificationService');
   const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
   const activeTask = await SupportTask.findOne({
-    where: { owner_telegram_id: String(userId), status: 'in_process' },
+    where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
   });
   if (!activeTask?.topic_id) return false;
   const supBot = getSupportBot();

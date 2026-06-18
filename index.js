@@ -104,7 +104,8 @@ bot.action('special_task_call',    callbackHandlers.specialTaskCall);
 bot.action(/^task_call_ended_(\d+)$/, callbackHandlers.taskCallEnded);
 bot.action(/^task_approved_(\d+)$/,   callbackHandlers.taskOwnerApproved);
 bot.action(/^task_not_done_(\d+)$/,   callbackHandlers.taskNotDone);
-bot.action('support_status',          callbackHandlers.supportStatus);
+bot.action('support_status',            callbackHandlers.supportStatus);
+bot.action('support_cancel_session',    callbackHandlers.cancelSupportSession);
 
 // ─── Referral ─────────────────────────────────────────────────────────────────
 bot.action('referral_menu',                  callbackHandlers.referralMenu);

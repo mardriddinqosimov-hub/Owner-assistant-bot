@@ -1738,10 +1738,61 @@ const supportStatus = async (ctx) => {
       `🔴 <b>Active Support Session</b>\n\n` +
       `📝 Request: ${task.request_text || '(call request)'}\n\n` +
       `Status: ${statusLabel}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🏠 Main Menu',        callback_data: 'main_menu' }],
+            [{ text: '❌ Cancel Session',   callback_data: 'support_cancel_session' }],
+          ],
+        },
+      }
     );
   } catch (err) {
     logger.error('supportStatus error:', err);
+  }
+};
+
+const cancelSupportSession = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const SupportTask = require('../models/SupportTask');
+    const { getSupportBot } = require('../services/notificationService');
+    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
+    const supportBot = getSupportBot();
+
+    const task = await SupportTask.findOne({
+      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    });
+    if (!task) {
+      return ctx.editMessageText(
+        `✅ No active support session found.`,
+        { reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+      );
+    }
+
+    await task.update({ status: 'cancelled', updated_at: new Date() });
+
+    if (supportBot && task.topic_id) {
+      try {
+        await supportBot.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `❌ <b>Session Cancelled</b>\n\nOwner cancelled this request.`,
+          { parse_mode: 'HTML', message_thread_id: task.topic_id }
+        );
+        await supportBot.telegram.editForumTopic(SUPPORT_CHAT_ID, task.topic_id, { name: `❌ ${task.owner_name}` });
+        await supportBot.telegram.closeForumTopic(SUPPORT_CHAT_ID, task.topic_id);
+      } catch (err) {
+        logger.warn('cancelSupportSession topic close failed:', err.message);
+      }
+    }
+
+    await ctx.editMessageText(
+      `❌ <b>Session Cancelled</b>\n\nYour support request has been cancelled.`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+    );
+  } catch (err) {
+    logger.error('cancelSupportSession error:', err);
   }
 };
 
@@ -1807,5 +1858,5 @@ module.exports = {
   specialTaskMenu, specialTaskMessage, specialTaskCall,
   taskCallEnded, taskOwnerApproved, taskNotDone,
   specialTaskSessions, callPollIntervals,
-  supportStatus,
+  supportStatus, cancelSupportSession,
 };
