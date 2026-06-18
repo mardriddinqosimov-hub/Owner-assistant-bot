@@ -1470,21 +1470,32 @@ const specialTaskCall = async (ctx) => {
       );
     }
 
+    // Reuse owner's permanent topic if one exists
+    const priorCallTask = await SupportTask.findOne({
+      where: { owner_telegram_id: ownerTgId, topic_id: { [Op.not]: null } },
+      order: [['created_at', 'DESC']],
+    });
+    let callTopicId = priorCallTask?.topic_id || null;
+
     const task = await SupportTask.create({
       owner_user_id:     user.id,
       owner_telegram_id: ownerTgId,
       owner_name:        ownerLabel,
       type:              'call',
       status:            'pending',
+      topic_id:          callTopicId,
       created_at:        new Date(),
       updated_at:        new Date(),
     });
 
     if (supportBot) {
       try {
-        const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `📞 ${ownerLabel}`);
-        const topicId = topic.message_thread_id;
-        await task.update({ topic_id: topicId });
+        if (!callTopicId) {
+          const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
+          callTopicId = topic.message_thread_id;
+          await task.update({ topic_id: callTopicId });
+        }
+        const topicId = callTopicId;
 
         const callUrl = username ? `https://t.me/${username}` : `tg://user?id=${ownerTgId}`;
 
@@ -1761,6 +1772,7 @@ const cancelSupportSession = async (ctx) => {
 
     const task = await SupportTask.findOne({
       where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+      order: [['updated_at', 'DESC']],
     });
     if (!task) {
       return ctx.editMessageText(
@@ -1769,7 +1781,11 @@ const cancelSupportSession = async (ctx) => {
       );
     }
 
-    await task.update({ status: 'cancelled', updated_at: new Date() });
+    // Cancel ALL active tasks for this owner, not just the first one found
+    await SupportTask.update(
+      { status: 'cancelled', updated_at: new Date() },
+      { where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } } }
+    );
 
     if (supportBot && task.topic_id) {
       try {

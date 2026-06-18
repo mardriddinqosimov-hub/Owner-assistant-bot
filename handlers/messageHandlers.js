@@ -237,43 +237,26 @@ const handleText = async (ctx) => {
     const { getSupportBot } = require('../services/notificationService');
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
-
-    // #2 Duplicate guard — relay the message to the existing topic instead of blocking it
     const { Op } = require('sequelize');
-    const existing = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-    });
-    if (existing) {
-      if (supportBot) {
-        let existingTopicId = existing.topic_id;
 
+    // Only relay if support is actively working — in_process or awaiting_approval
+    const claimedTask = await SupportTask.findOne({
+      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['in_process', 'awaiting_approval'] } },
+      order: [['created_at', 'DESC']],
+    });
+    if (claimedTask) {
+      if (supportBot) {
+        let existingTopicId = claimedTask.topic_id;
         if (!existingTopicId) {
-          // Look for any prior topic this owner already has before creating a new one
           const priorWithTopic = await SupportTask.findOne({
             where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
             order: [['created_at', 'DESC']],
           });
           if (priorWithTopic) {
             existingTopicId = priorWithTopic.topic_id;
-            await existing.update({ topic_id: existingTopicId });
-          } else {
-            // Truly first-ever topic for this owner
-            try {
-              const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${existing.owner_name || 'Owner'}`);
-              existingTopicId = topic.message_thread_id;
-              await existing.update({ topic_id: existingTopicId });
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${existing.owner_name}</b>\n\n📝 Request:\n${existing.request_text || '(no text)'}`,
-                { parse_mode: 'HTML', message_thread_id: existingTopicId,
-                  reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${existing.id}` }]] } }
-              );
-            } catch (err) {
-              logger.warn('Lazy topic creation (duplicate guard) failed:', err.message);
-            }
+            await claimedTask.update({ topic_id: existingTopicId });
           }
         }
-
         if (existingTopicId) {
           const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
           try {
@@ -282,10 +265,10 @@ const handleText = async (ctx) => {
               `👤 <b>${senderName}:</b>\n${requestText}`,
               { parse_mode: 'HTML', message_thread_id: existingTopicId }
             );
-            if (existing.claimed_telegram_id) {
+            if (claimedTask.claimed_telegram_id) {
               await supportBot.telegram.sendMessage(
                 SUPPORT_CHAT_ID,
-                `🔔 <a href="tg://user?id=${existing.claimed_telegram_id}">${existing.claimed_by || 'Support'}</a> — owner replied above`,
+                `🔔 <a href="tg://user?id=${claimedTask.claimed_telegram_id}">${claimedTask.claimed_by || 'Support'}</a> — owner replied above`,
                 { parse_mode: 'HTML', message_thread_id: existingTopicId }
               );
             }
@@ -299,6 +282,12 @@ const handleText = async (ctx) => {
         { parse_mode: 'HTML' }
       );
     }
+
+    // Owner explicitly started a new request — cancel any stale unclaimed tasks
+    await SupportTask.update(
+      { status: 'cancelled', updated_at: new Date() },
+      { where: { owner_telegram_id: String(userId), status: 'pending' } }
+    );
 
     const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
 
