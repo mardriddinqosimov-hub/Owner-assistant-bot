@@ -238,6 +238,18 @@ const handleText = async (ctx) => {
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
     const supportBot = getSupportBot();
 
+    // #2 Duplicate guard
+    const { Op } = require('sequelize');
+    const existing = await SupportTask.findOne({
+      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    });
+    if (existing) {
+      return ctx.reply(
+        `⚠️ <b>You already have an open support request.</b>\n\nJust type here and your message goes directly to the support team.`,
+        { parse_mode: 'HTML' }
+      );
+    }
+
     const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
 
     const task = await SupportTask.create({
@@ -275,6 +287,21 @@ const handleText = async (ctx) => {
             },
           }
         );
+
+        // #5 — 30s unclaimed reminder
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `⚠️ <b>Unclaimed for 30 seconds</b> — please claim this request!`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 30 * 1000);
+
       } catch (err) {
         logger.error(`Support topic creation failed (task ${task.id}): ${err.message}`);
         // Fallback: post to General topic so request is not lost
@@ -320,6 +347,14 @@ const handleText = async (ctx) => {
             `👤 <b>${senderName}:</b>\n${ctx.message.text}`,
             { parse_mode: 'HTML', message_thread_id: activeTask.topic_id }
           );
+          // #3 — ping claimer so they get notified
+          if (activeTask.claimed_telegram_id) {
+            await supBot.telegram.sendMessage(
+              SUPPORT_CHAT_ID,
+              `🔔 <a href="tg://user?id=${activeTask.claimed_telegram_id}">${activeTask.claimed_by || 'Support'}</a> — owner replied above`,
+              { parse_mode: 'HTML', message_thread_id: activeTask.topic_id }
+            );
+          }
         } catch (err) {
           logger.warn('Owner→topic relay failed:', err.message);
         }

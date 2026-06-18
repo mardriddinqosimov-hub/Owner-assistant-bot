@@ -110,14 +110,12 @@ const haMain = async (ctx) => {
 const haStats = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const now = new Date();
-    const startOfDay   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfWeek  = new Date(startOfDay); startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay());
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const SupportTask = require('../models/SupportTask');
 
     const [
-      totalUsers, owners, safety, withCompany, blocked,
-      leader, factor,
+      totalUsers, owners, safety, withCompany, blocked, leader, factor,
+      totalTasks, openTasks, closedTasks, allClosed,
     ] = await Promise.all([
       User.count(),
       User.count({ where: { role: 'owner' } }),
@@ -126,7 +124,37 @@ const haStats = async (ctx) => {
       User.count({ where: { blocked: true } }),
       User.count({ where: { platform: 'leader' } }),
       User.count({ where: { platform: 'factor' } }),
+      SupportTask.count(),
+      SupportTask.count({ where: { status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } } }),
+      SupportTask.count({ where: { status: 'closed' } }),
+      SupportTask.findAll({ where: { status: 'closed', claimed_at: { [Op.not]: null }, closed_at: { [Op.not]: null } } }),
     ]);
+
+    const fmtMs = ms => {
+      const s = Math.round(ms / 1000);
+      if (s < 60)   return `${s}s`;
+      if (s < 3600) return `${Math.round(s / 60)}m`;
+      return `${(s / 3600).toFixed(1)}h`;
+    };
+    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+
+    const memberMap = {};
+    for (const t of allClosed) {
+      const key = t.claimed_by || 'Unknown';
+      if (!memberMap[key]) memberMap[key] = { claimMs: [], resolveMs: [], count: 0 };
+      memberMap[key].count++;
+      if (t.claimed_at) memberMap[key].claimMs.push(new Date(t.claimed_at) - new Date(t.created_at));
+      if (t.closed_at)  memberMap[key].resolveMs.push(new Date(t.closed_at) - new Date(t.created_at));
+    }
+
+    let memberLines = '';
+    for (const [name, d] of Object.entries(memberMap)) {
+      const claim   = avg(d.claimMs);
+      const resolve = avg(d.resolveMs);
+      memberLines += `\n  • <b>${name}</b> — ${d.count} cases`;
+      if (claim)   memberLines += ` | claim: ${fmtMs(claim)}`;
+      if (resolve) memberLines += ` | resolve: ${fmtMs(resolve)}`;
+    }
 
     await ctx.editMessageText(
       `📊 <b>System Stats</b>\n\n` +
@@ -134,7 +162,10 @@ const haStats = async (ctx) => {
       `• Total: <b>${totalUsers}</b>  (${withCompany} with company)\n` +
       `• Owners: <b>${owners}</b>  |  Safety: <b>${safety}</b>  |  Other: <b>${totalUsers - owners - safety}</b>\n` +
       `• Leader ELD: <b>${leader}</b>  |  Factor ELD: <b>${factor}</b>\n` +
-      `• Blocked: <b>${blocked}</b>`,
+      `• Blocked: <b>${blocked}</b>\n\n` +
+      `<b>🎧 Support</b>\n` +
+      `• Total cases: <b>${totalTasks}</b>  |  Open: <b>${openTasks}</b>  |  Closed: <b>${closedTasks}</b>` +
+      (memberLines ? `\n\n<b>👤 Per Member (closed cases)</b>${memberLines}` : ''),
       { parse_mode: 'HTML', reply_markup: BACK_KB }
     );
   } catch (err) {

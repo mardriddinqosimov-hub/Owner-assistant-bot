@@ -11,9 +11,11 @@ const SupportTask = sequelize.define('SupportTask', {
   status:              { type: DataTypes.STRING,  defaultValue: 'pending' },
   // 'pending' → 'awaiting_approval' → 'closed'   (message)
   // 'pending' → 'call_ended' → 'closed'           (call)
-  topic_id:            { type: DataTypes.INTEGER, allowNull: true },   // forum topic ID (per-owner chat thread)
-  claimed_by:          { type: DataTypes.STRING, allowNull: true },    // display name of support member who claimed
-  claimed_telegram_id: { type: DataTypes.STRING, allowNull: true },    // telegram ID of claimer
+  topic_id:            { type: DataTypes.INTEGER, allowNull: true },
+  claimed_by:          { type: DataTypes.STRING,  allowNull: true },
+  claimed_telegram_id: { type: DataTypes.STRING,  allowNull: true },
+  claimed_at:          { type: DataTypes.DATE,    allowNull: true },
+  closed_at:           { type: DataTypes.DATE,    allowNull: true },
   support_message_id:  { type: DataTypes.INTEGER },
   followup_message_id: { type: DataTypes.INTEGER },
   member_id:           { type: DataTypes.STRING },

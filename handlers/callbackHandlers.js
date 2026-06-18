@@ -1459,6 +1459,17 @@ const specialTaskCall = async (ctx) => {
     const ownerTgId  = String(ctx.from.id);
     const username   = ctx.from.username;
 
+    // #2 Duplicate guard
+    const existingCall = await SupportTask.findOne({
+      where: { owner_telegram_id: ownerTgId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    });
+    if (existingCall) {
+      return ctx.editMessageText(
+        `⚠️ <b>You already have an open support request.</b>\n\nJust type in the chat and your message goes directly to the support team.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+      );
+    }
+
     const task = await SupportTask.create({
       owner_user_id:     user.id,
       owner_telegram_id: ownerTgId,
@@ -1490,12 +1501,26 @@ const specialTaskCall = async (ctx) => {
             message_thread_id: topicId,
             reply_markup: {
               inline_keyboard: [
-                [{ text: '✅ Claim Case',   callback_data: `sup_claim_${task.id}` }],
-                [{ text: '📞 Call Owner',   url: callUrl }],
+                [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
+                [{ text: '📞 Call Owner', url: callUrl }],
               ],
             },
           }
         );
+
+        // #5 — 30s unclaimed reminder
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `⚠️ <b>Unclaimed for 30 seconds</b> — please claim this call request!`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 30 * 1000);
       } catch (err) {
         logger.error(`Call topic creation failed (task ${task.id}): ${err.message}`);
         try {
@@ -1567,7 +1592,7 @@ const taskOwnerApproved = async (ctx) => {
     const task = await SupportTask.findByPk(taskId);
     if (!task) return;
 
-    await task.update({ status: 'closed', updated_at: new Date() });
+    await task.update({ status: 'closed', closed_at: new Date(), updated_at: new Date() });
 
     if (supportBot && task.topic_id) {
       try {
@@ -1662,25 +1687,61 @@ const mainMenu = async (ctx) => {
       ? `✅ Connected to <b>${user.company_name || 'ELD'}</b>`
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
+    // #6 — check for active support session
+    const SupportTask = require('../models/SupportTask');
+    const activeTask = user ? await SupportTask.findOne({
+      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    }) : null;
+
+    const keyboard = [
+      [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
+      [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
+      [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
+      [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+      [{ text: '🛠️ Special Task',    callback_data: 'special_task_menu' }],
+      [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
+      [{ text: '❓ Help',            callback_data: 'help_menu' }],
+    ];
+    if (activeTask) {
+      keyboard.unshift([{ text: '🔴 Active Support Session', callback_data: 'support_status' }]);
+    }
+
     await ctx.editMessageText(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\nELD Driver Monitoring &amp; Device Orders\n\n${companyLine}`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
-            [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
-            [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
-            [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
-            [{ text: '🛠️ Special Task',    callback_data: 'special_task_menu' }],
-            [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
-            [{ text: '❓ Help',            callback_data: 'help_menu' }],
-          ],
-        },
-      }
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     );
   } catch (err) {
     logger.error('mainMenu error:', err);
+  }
+};
+
+const supportStatus = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const SupportTask = require('../models/SupportTask');
+    const task = await SupportTask.findOne({
+      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    });
+    if (!task) {
+      return ctx.editMessageText(
+        `✅ No active support requests.`,
+        { reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+      );
+    }
+    const statusLabel = {
+      pending:            '🕐 Waiting to be claimed by a support member',
+      in_process:         `⏳ In progress — handled by ${task.claimed_by || 'support'}`,
+      awaiting_approval:  '✅ Support marked as done — please confirm',
+    }[task.status] || task.status;
+
+    await ctx.editMessageText(
+      `🔴 <b>Active Support Session</b>\n\n` +
+      `📝 Request: ${task.request_text || '(call request)'}\n\n` +
+      `Status: ${statusLabel}`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+    );
+  } catch (err) {
+    logger.error('supportStatus error:', err);
   }
 };
 
@@ -1746,4 +1807,5 @@ module.exports = {
   specialTaskMenu, specialTaskMessage, specialTaskCall,
   taskCallEnded, taskOwnerApproved, taskNotDone,
   specialTaskSessions, callPollIntervals,
+  supportStatus,
 };

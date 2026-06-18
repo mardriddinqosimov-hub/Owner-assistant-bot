@@ -45,6 +45,7 @@ const supClaim = async (ctx) => {
     status:              'in_process',
     claimed_by:          claimerName,
     claimed_telegram_id: String(ctx.from.id),
+    claimed_at:          new Date(),
     updated_at:          new Date(),
   });
 
@@ -75,7 +76,7 @@ const supClaim = async (ctx) => {
     try {
       await mainBot.telegram.sendMessage(
         task.owner_telegram_id,
-        `⏳ <b>Support team picked up your request!</b>\n\nA team member is working on it. Feel free to send more details here anytime.`,
+        `⏳ <b>${claimerName} from support is on your case!</b>\n\nFeel free to send more details here anytime — they'll see everything.`,
         { parse_mode: 'HTML' }
       );
     } catch (err) {
