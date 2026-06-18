@@ -466,12 +466,6 @@ const handleText = async (ctx) => {
           } catch (err) {
             logger.warn('Owner→topic relay failed:', err.message);
           }
-          if (delivered) {
-            const deliveryMsg = activeTask.claimed_by
-              ? `✅ Sent — <b>${activeTask.claimed_by}</b> will see this.`
-              : `✅ Sent to support inbox.`;
-            await ctx.reply(deliveryMsg, { parse_mode: 'HTML' }).catch(() => {});
-          }
           return;
         }
       }
