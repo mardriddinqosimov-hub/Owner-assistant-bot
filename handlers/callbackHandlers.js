@@ -1420,9 +1420,10 @@ const specialTaskMenu = async (ctx) => {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '💬 Message', callback_data: 'special_task_message' }],
-            [{ text: '📞 Call',    callback_data: 'special_task_call' }],
-            [{ text: '◀️ Back',   callback_data: 'main_menu' }],
+            [{ text: '💬 Message',      callback_data: 'special_task_message' }],
+            [{ text: '📞 Call',         callback_data: 'special_task_call' }],
+            [{ text: '📋 My Requests',  callback_data: 'support_request_history' }],
+            [{ text: '◀️ Back',         callback_data: 'main_menu' }],
           ],
         },
       }
@@ -1519,7 +1520,7 @@ const specialTaskCall = async (ctx) => {
           }
         );
 
-        // #5 — 30s unclaimed reminder
+        // Escalation reminders: 30s, 2min, 5min
         setTimeout(async () => {
           try {
             const fresh = await SupportTask.findByPk(task.id);
@@ -1532,6 +1533,32 @@ const specialTaskCall = async (ctx) => {
             }
           } catch {}
         }, 30 * 1000);
+
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🚨 <b>Still unclaimed — 2 minutes passed!</b> Please claim this call request.`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 2 * 60 * 1000);
+
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🔴 <b>URGENT — 5 minutes unclaimed!</b> Owner is waiting. Handle this immediately.`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 5 * 60 * 1000);
       } catch (err) {
         logger.error(`Call topic creation failed (task ${task.id}): ${err.message}`);
         try {
@@ -1618,9 +1645,15 @@ const taskOwnerApproved = async (ctx) => {
 
       // Post case summary to Fully Done topic
       const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
-      const closedAt = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      const closedAtDate = new Date();
+      const closedAt = closedAtDate.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
       const handledBy = task.claimed_by || '—';
       const memberId  = task.member_id ? `#${task.member_id}` : '—';
+      const durationMs   = closedAtDate - new Date(task.created_at);
+      const durationMins = Math.round(durationMs / 60000);
+      const durationStr  = durationMins >= 60
+        ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+        : `${durationMins}m`;
       try {
         await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
@@ -1629,6 +1662,7 @@ const taskOwnerApproved = async (ctx) => {
           `📝 Request: ${task.request_text || '—'}\n\n` +
           `🛠 Handled by: <b>${handledBy}</b>\n` +
           `🆔 Member ID: <b>${memberId}</b>\n` +
+          `⏱ Response time: <b>${durationStr}</b>\n` +
           `🕐 Closed at: ${closedAt}`,
           { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
         );
@@ -1690,6 +1724,7 @@ const mainMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     registrationSessions.delete(ctx.from.id);
+    specialTaskSessions.delete(ctx.from.id);
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     const hasKey = user && !!user.company_api_key;
     const companyLine = hasKey
@@ -1808,6 +1843,49 @@ const cancelSupportSession = async (ctx) => {
   }
 };
 
+const ownerRequestsHistory = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const SupportTask = require('../models/SupportTask');
+    const tasks = await SupportTask.findAll({
+      where: { owner_telegram_id: String(ctx.from.id) },
+      order: [['created_at', 'DESC']],
+      limit: 5,
+    });
+
+    if (!tasks.length) {
+      return ctx.editMessageText(
+        `📋 <b>My Requests</b>\n\nYou have no support requests yet.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'special_task_menu' }]] } }
+      );
+    }
+
+    const statusLabel = {
+      pending:           '🕐 Waiting',
+      in_process:        '⏳ In Progress',
+      awaiting_approval: '✅ Awaiting Confirmation',
+      closed:            '✅ Closed',
+      cancelled:         '❌ Cancelled',
+      call_ended:        '📞 Call Ended',
+    };
+
+    const lines = tasks.map((t, i) => {
+      const date = new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const type = t.type === 'call' ? '📞' : '💬';
+      const status = statusLabel[t.status] || t.status;
+      const preview = t.request_text
+        ? t.request_text.slice(0, 50) + (t.request_text.length > 50 ? '…' : '')
+        : '(call request)';
+      return `${i + 1}. ${type} <b>${date}</b> — ${status}\n    ${preview}`;
+    });
+
+    await ctx.editMessageText(
+      `📋 <b>My Last ${tasks.length} Request${tasks.length > 1 ? 's' : ''}</b>\n\n${lines.join('\n\n')}`,
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'special_task_menu' }]] } }
+    );
+  } catch (err) { logger.error('ownerRequestsHistory error:', err); }
+};
+
 const changeTeam = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -1871,4 +1949,5 @@ module.exports = {
   taskCallEnded, taskOwnerApproved, taskNotDone,
   specialTaskSessions, callPollIntervals,
   supportStatus, cancelSupportSession,
+  ownerRequestsHistory,
 };

@@ -230,6 +230,11 @@ const handleText = async (ctx) => {
     specialTaskSessions.delete(userId);
     const requestText = ctx.message.text.trim();
 
+    if (!requestText) {
+      specialTaskSessions.set(userId, 'awaiting_text');
+      return ctx.reply('⚠️ Please enter a non-empty message. Try again:');
+    }
+
     const user = await User.findOne({ where: { telegram_id: userId } });
     if (!user) return ctx.reply('Please /start first.');
 
@@ -343,7 +348,7 @@ const handleText = async (ctx) => {
           }
         );
 
-        // 30s unclaimed reminder
+        // Escalation reminders: 30s, 2min, 5min
         setTimeout(async () => {
           try {
             const fresh = await SupportTask.findByPk(task.id);
@@ -356,6 +361,32 @@ const handleText = async (ctx) => {
             }
           } catch {}
         }, 30 * 1000);
+
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🚨 <b>Still unclaimed — 2 minutes passed!</b> Please claim this request.`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 2 * 60 * 1000);
+
+        setTimeout(async () => {
+          try {
+            const fresh = await SupportTask.findByPk(task.id);
+            if (fresh && fresh.status === 'pending') {
+              await supportBot.telegram.sendMessage(
+                SUPPORT_CHAT_ID,
+                `🔴 <b>URGENT — 5 minutes unclaimed!</b> Owner is waiting. Handle this immediately.`,
+                { parse_mode: 'HTML', message_thread_id: topicId }
+              );
+            }
+          } catch {}
+        }, 5 * 60 * 1000);
 
       } catch (err) {
         logger.error(`Support topic post failed (task ${task.id}): ${err.message}`);
@@ -426,21 +457,29 @@ const handleText = async (ctx) => {
 
         if (topicId) {
           const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
+          let delivered = false;
           try {
             await supBot.telegram.sendMessage(
               SUPPORT_CHAT_ID,
               `👤 <b>${senderName}:</b>\n${ctx.message.text}`,
               { parse_mode: 'HTML', message_thread_id: topicId }
             );
+            delivered = true;
             if (activeTask.claimed_telegram_id) {
               await supBot.telegram.sendMessage(
                 SUPPORT_CHAT_ID,
                 `🔔 <a href="tg://user?id=${activeTask.claimed_telegram_id}">${activeTask.claimed_by || 'Support'}</a> — owner replied above`,
                 { parse_mode: 'HTML', message_thread_id: topicId }
-              );
+              ).catch(() => {});
             }
           } catch (err) {
             logger.warn('Owner→topic relay failed:', err.message);
+          }
+          if (delivered) {
+            const deliveryMsg = activeTask.claimed_by
+              ? `✅ Sent — <b>${activeTask.claimed_by}</b> will see this.`
+              : `✅ Sent to support inbox.`;
+            await ctx.reply(deliveryMsg, { parse_mode: 'HTML' }).catch(() => {});
           }
           return;
         }
@@ -470,6 +509,9 @@ async function relaySupportMedia(ctx, fileId, type) {
     if (type === 'photo') {
       await supBot.telegram.sendPhoto(SUPPORT_CHAT_ID, fileId,
         { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+    } else if (type === 'voice') {
+      await supBot.telegram.sendVoice(SUPPORT_CHAT_ID, fileId,
+        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
     } else {
       await supBot.telegram.sendDocument(SUPPORT_CHAT_ID, fileId,
         { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
@@ -480,9 +522,22 @@ async function relaySupportMedia(ctx, fileId, type) {
   return true;
 }
 
+const handleVoice = async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  const userId = ctx.from.id;
+  if (specialTaskSessions.get(userId) === 'awaiting_text') {
+    return ctx.reply('📝 Please type your request as text — voice messages cannot be used as the initial message.');
+  }
+  const fileId = ctx.message.voice.file_id;
+  await relaySupportMedia(ctx, fileId, 'voice');
+};
+
 const handlePhoto = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
+  if (specialTaskSessions.get(userId) === 'awaiting_text') {
+    return ctx.reply('📝 Please type your request as text — photos cannot be used as the initial message.');
+  }
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -503,6 +558,9 @@ const handlePhoto = async (ctx) => {
 const handleDocument = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
+  if (specialTaskSessions.get(userId) === 'awaiting_text') {
+    return ctx.reply('📝 Please type your request as text — files cannot be used as the initial message.');
+  }
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') {
     const fileId = ctx.message.document.file_id;
@@ -524,4 +582,4 @@ const handleDocument = async (ctx) => {
   }
 };
 
-module.exports = { handleText, handlePhoto, handleDocument };
+module.exports = { handleText, handlePhoto, handleDocument, handleVoice };

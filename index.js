@@ -106,6 +106,7 @@ bot.action(/^task_approved_(\d+)$/,   callbackHandlers.taskOwnerApproved);
 bot.action(/^task_not_done_(\d+)$/,   callbackHandlers.taskNotDone);
 bot.action('support_status',            callbackHandlers.supportStatus);
 bot.action('support_cancel_session',    callbackHandlers.cancelSupportSession);
+bot.action('support_request_history',   callbackHandlers.ownerRequestsHistory);
 
 // ─── Referral ─────────────────────────────────────────────────────────────────
 bot.action('referral_menu',                  callbackHandlers.referralMenu);
@@ -130,6 +131,7 @@ bot.action('help_menu', callbackHandlers.helpMenu);
 bot.on('text', messageHandlers.handleText);
 bot.on('photo', messageHandlers.handlePhoto);
 bot.on('document', messageHandlers.handleDocument);
+bot.on('voice', messageHandlers.handleVoice);
 
 // ─── Group order listener ─────────────────────────────────────────────────────
 bot.on('message', groupHandlers.handleGroupMessage);
@@ -276,8 +278,9 @@ function setupSupportBot() {
   supportBot.command('chatid', supportBotHandlers.getChatId);
   supportBot.command('getid', supportBotHandlers.getTopicId);
   supportBot.action('noop', ctx => ctx.answerCbQuery());
-  supportBot.action(/^sup_claim_(\d+)$/, supportBotHandlers.supClaim);
-  supportBot.action(/^sup_done_(\d+)$/,  supportBotHandlers.supDone);
+  supportBot.action(/^sup_claim_(\d+)$/,       supportBotHandlers.supClaim);
+  supportBot.action(/^sup_done_(\d+)$/,        supportBotHandlers.supDone);
+  supportBot.action(/^sup_force_close_(\d+)$/, supportBotHandlers.supForceClose);
   supportBot.on('message', supportBotHandlers.handleSupportTopicMessage);
 }
 
