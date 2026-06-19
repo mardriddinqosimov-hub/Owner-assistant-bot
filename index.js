@@ -280,7 +280,6 @@ function setupSupportBot() {
   supportBot.action('noop', ctx => ctx.answerCbQuery());
   supportBot.action(/^sup_claim_(\d+)$/,       supportBotHandlers.supClaim);
   supportBot.action(/^sup_done_(\d+)$/,        supportBotHandlers.supDone);
-  supportBot.action(/^sup_force_close_(\d+)$/, supportBotHandlers.supForceClose);
   supportBot.on('message', supportBotHandlers.handleSupportTopicMessage);
 }
 

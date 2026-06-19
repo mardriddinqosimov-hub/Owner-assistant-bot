@@ -1409,7 +1409,6 @@ const refCoverService = async (ctx) => {
 // ─── Special Task ─────────────────────────────────────────────────────────────
 
 const specialTaskSessions  = new Map(); // userId → 'awaiting_text'
-const callPollIntervals    = new Map(); // taskId → intervalId
 
 const specialTaskMenu = async (ctx) => {
   try {
@@ -1593,9 +1592,6 @@ const taskCallEnded = async (ctx) => {
     await ctx.answerCbQuery('Got it!');
     const taskId = parseInt(ctx.match[1], 10);
 
-    const iv = callPollIntervals.get(taskId);
-    if (iv) { clearInterval(iv); callPollIntervals.delete(taskId); }
-
     const SupportTask = require('../models/SupportTask');
     const { getSupportBot } = require('../services/notificationService');
     const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
@@ -1606,16 +1602,13 @@ const taskCallEnded = async (ctx) => {
 
     await task.update({ status: 'call_ended', updated_at: new Date() });
 
-    if (supportBot) {
+    if (supportBot && task.topic_id) {
       try {
-        const sent = await supportBot.telegram.sendMessage(
+        await supportBot.telegram.sendMessage(
           SUPPORT_CHAT_ID,
-          `📞 <b>Call Ended — Owner Approved</b>\n\n` +
-          `👤 Owner: <b>${task.owner_name}</b>\n\n` +
-          `Whoever handled this call, <b>reply to this message</b> with your Member ID to close the case.`,
-          { parse_mode: 'HTML', message_thread_id: parseInt(process.env.TOPIC_IN_PROCESS || '15') }
+          `📞 <b>Call Ended</b>\n\nOwner confirmed the call is done.\n\nType <code>Done #YourMemberID</code> to close the case and log your ID.`,
+          { parse_mode: 'HTML', message_thread_id: task.topic_id }
         );
-        await task.update({ followup_message_id: sent.message_id });
       } catch (err) { logger.warn('Call-ended notify failed:', err.message); }
     }
 
@@ -1639,7 +1632,8 @@ const taskOwnerApproved = async (ctx) => {
     const task = await SupportTask.findByPk(taskId);
     if (!task) return;
 
-    await task.update({ status: 'closed', closed_at: new Date(), updated_at: new Date() });
+    const closedAtDate = new Date();
+    await task.update({ status: 'closed', closed_at: closedAtDate, updated_at: closedAtDate });
 
     if (supportBot && task.topic_id) {
       try {
@@ -1654,7 +1648,6 @@ const taskOwnerApproved = async (ctx) => {
 
       // Post case summary to Fully Done topic
       const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
-      const closedAtDate = new Date();
       const closedAt = closedAtDate.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
       const handledBy = task.claimed_by || '—';
       const memberId  = task.member_id ? `#${task.member_id}` : '—';

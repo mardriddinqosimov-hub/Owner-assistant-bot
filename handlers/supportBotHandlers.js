@@ -10,7 +10,7 @@ const supportStart = async (ctx) => {
     `You'll receive owner requests here as dedicated topics.\n\n` +
     `Click <b>✅ Claim Case</b> on a request to take it.\n` +
     `Then chat directly in the topic — messages relay to the owner.\n` +
-    `Click <b>✅ Mark as Done</b> when the issue is resolved.`,
+    `When done, type <code>Done #YourMemberID</code> in the topic to close the case.`,
     { parse_mode: 'HTML' }
   );
 };
@@ -49,7 +49,6 @@ const supClaim = async (ctx) => {
     updated_at:          new Date(),
   });
 
-  // Replace Claim button with claimed status + Mark Done button
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
@@ -61,7 +60,6 @@ const supClaim = async (ctx) => {
 
   await ctx.answerCbQuery('Case claimed!');
 
-  // Notify owner
   const mainBot = getMainBot();
   if (mainBot) {
     try {
@@ -76,7 +74,7 @@ const supClaim = async (ctx) => {
   }
 };
 
-// Support member clicks "✅ Mark as Done"
+// Support member clicks "✅ Mark as Done" — prompts to type Done #MemberID
 const supDone = async (ctx) => {
   const taskId = parseInt(ctx.match[1], 10);
   const task = await SupportTask.findByPk(taskId);
@@ -85,121 +83,24 @@ const supDone = async (ctx) => {
     return ctx.answerCbQuery('⚠️ Case not active.', { show_alert: true });
   }
 
-  await task.update({ status: 'awaiting_approval', updated_at: new Date() });
-
-  // Replace button with waiting indicator
   try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [{ text: '⏳ Waiting for owner confirmation…', callback_data: 'noop' }],
-      ],
-    });
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   } catch {}
 
-  await ctx.answerCbQuery('Waiting for owner to confirm.');
-
-  // Ask owner to confirm
-  const mainBot = getMainBot();
-  if (mainBot) {
-    try {
-      await mainBot.telegram.sendMessage(
-        task.owner_telegram_id,
-        `✅ <b>Has your request been fully resolved?</b>`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${taskId}` }],
-              [{ text: '❌ Not Yet',         callback_data: `task_not_done_${taskId}` }],
-            ],
-          },
-        }
-      );
-    } catch (err) {
-      logger.warn('supDone owner notify failed:', err.message);
-    }
-  }
-
-  // Post force-close option in topic for support team
-  if (task.topic_id) {
-    try {
-      await ctx.telegram.sendMessage(
-        SUPPORT_CHAT_ID,
-        `⏳ Waiting for owner confirmation. If owner doesn't respond, use the button below.`,
-        {
-          parse_mode: 'HTML',
-          message_thread_id: task.topic_id,
-          reply_markup: { inline_keyboard: [[{ text: '🔒 Force Close', callback_data: `sup_force_close_${taskId}` }]] },
-        }
-      );
-    } catch {}
-  }
-};
-
-const supForceClose = async (ctx) => {
-  const taskId = parseInt(ctx.match[1], 10);
-  const task = await SupportTask.findByPk(taskId);
-
-  if (!task || !['in_process', 'awaiting_approval'].includes(task.status)) {
-    return ctx.answerCbQuery('⚠️ Case already closed.', { show_alert: true });
-  }
-
-  const closedAtDate = new Date();
-  const durationMs   = closedAtDate - new Date(task.created_at);
-  const durationMins = Math.round(durationMs / 60000);
-  const durationStr  = durationMins >= 60
-    ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
-    : `${durationMins}m`;
-
-  await task.update({ status: 'closed', closed_at: closedAtDate, updated_at: closedAtDate });
-
-  try { await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); } catch {}
+  await ctx.answerCbQuery('Type Done #YourMemberID to close.');
 
   if (task.topic_id) {
     try {
       await ctx.telegram.sendMessage(
         SUPPORT_CHAT_ID,
-        `🔒 <b>Case Force-Closed</b> by support team.`,
+        `✅ Ready to close this case?\n\nType <code>Done #YourMemberID</code> in this topic to notify the owner and log your ID.`,
         { parse_mode: 'HTML', message_thread_id: task.topic_id }
       );
     } catch {}
-
-    // Post summary to Fully Done topic
-    const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
-    const closedAt  = closedAtDate.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
-    const handledBy = task.claimed_by || '—';
-    const memberId  = task.member_id ? `#${task.member_id}` : '—';
-    try {
-      await ctx.telegram.sendMessage(
-        SUPPORT_CHAT_ID,
-        `🔒 <b>Case Force-Closed</b>\n\n` +
-        `👤 Owner: <b>${task.owner_name}</b>\n` +
-        `📝 Request: ${task.request_text || '—'}\n\n` +
-        `🛠 Handled by: <b>${handledBy}</b>\n` +
-        `🆔 Member ID: <b>${memberId}</b>\n` +
-        `⏱ Response time: <b>${durationStr}</b>\n` +
-        `🕐 Closed at: ${closedAt}`,
-        { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
-      );
-    } catch {}
   }
-
-  // Notify owner
-  const mainBot = getMainBot();
-  if (mainBot) {
-    try {
-      await mainBot.telegram.sendMessage(
-        task.owner_telegram_id,
-        `🔒 <b>Your support case has been closed by the support team.</b>\n\nIf you need further help, feel free to open a new request.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-      );
-    } catch {}
-  }
-
-  await ctx.answerCbQuery('Case force-closed.');
 };
 
-// Relay messages from support topic → owner DM (text, photo, document)
+// Relay messages from support topic → owner DM (text, photo, document, voice)
 const handleSupportTopicMessage = async (ctx) => {
   if (String(ctx.chat?.id) !== String(SUPPORT_CHAT_ID)) return;
   if (ctx.message?.text?.startsWith('/')) return;
@@ -209,7 +110,7 @@ const handleSupportTopicMessage = async (ctx) => {
 
   const { Op } = require('sequelize');
   const task = await SupportTask.findOne({
-    where: { topic_id: topicId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
+    where: { topic_id: topicId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval', 'call_ended'] } },
     order: [['created_at', 'DESC']],
   });
   if (!task) return;
@@ -217,8 +118,9 @@ const handleSupportTopicMessage = async (ctx) => {
   const mainBot = getMainBot();
   if (!mainBot) return;
 
-  // ── Photo/document relay: topic → owner DM ──────────────────────────────────
+  // ── Media relay: topic → owner DM (not for call_ended — call is over) ─────────
   if (!ctx.message.text) {
+    if (task.status === 'call_ended') return;
     const caption = ctx.message.caption || '';
     try {
       if (ctx.message.photo) {
@@ -238,42 +140,102 @@ const handleSupportTopicMessage = async (ctx) => {
     return;
   }
 
-  // Detect "Done #XXXX" — extract member ID and trigger done flow
+  // ── "Done #MemberID" — closes the case ──────────────────────────────────────
   const doneMatch = ctx.message.text.match(/^Done\s+#(\S+)/i);
   if (doneMatch) {
-    const memberId = doneMatch[1]; // e.g. "M450"
-    await task.update({ member_id: memberId, status: 'awaiting_approval', updated_at: new Date() });
+    const memberId = doneMatch[1];
 
-    // Acknowledge in topic
-    try {
-      await ctx.telegram.sendMessage(
-        SUPPORT_CHAT_ID,
-        `✅ Logged member ID <b>#${memberId}</b>. Waiting for owner confirmation…`,
-        { parse_mode: 'HTML', message_thread_id: topicId,
-          reply_markup: { inline_keyboard: [[{ text: '⏳ Waiting for owner confirmation…', callback_data: 'noop' }]] } }
-      );
-    } catch {}
+    if (task.status === 'call_ended') {
+      // Call flow: owner already confirmed by tapping "Call Ended" — close directly
+      const closedAtDate = new Date();
+      const durationMs   = closedAtDate - new Date(task.created_at);
+      const durationMins = Math.round(durationMs / 60000);
+      const durationStr  = durationMins >= 60
+        ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
+        : `${durationMins}m`;
 
-    // Ask owner to confirm
-    try {
-      await mainBot.telegram.sendMessage(
-        task.owner_telegram_id,
-        `✅ <b>Has your request been fully resolved?</b>`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${task.id}` }],
-              [{ text: '❌ Not Yet',         callback_data: `task_not_done_${task.id}` }],
-            ],
-          },
-        }
-      );
-    } catch (err) {
-      logger.warn('Done trigger owner notify failed:', err.message);
+      await task.update({ member_id: memberId, status: 'closed', closed_at: closedAtDate, updated_at: closedAtDate });
+
+      try {
+        await ctx.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `✅ <b>Case Closed</b>\n\n🆔 Member ID: <b>#${memberId}</b>`,
+          { parse_mode: 'HTML', message_thread_id: topicId }
+        );
+      } catch {}
+
+      const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
+      const closedAt = closedAtDate.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+      try {
+        await ctx.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `📞 <b>Call Case Closed</b>\n\n` +
+          `👤 Owner: <b>${task.owner_name}</b>\n` +
+          `📝 Request: (call)\n\n` +
+          `🛠 Handled by: <b>${task.claimed_by || '—'}</b>\n` +
+          `🆔 Member ID: <b>#${memberId}</b>\n` +
+          `⏱ Response time: <b>${durationStr}</b>\n` +
+          `🕐 Closed at: ${closedAt}`,
+          { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
+        );
+      } catch {}
+
+      try {
+        await mainBot.telegram.sendMessage(
+          task.owner_telegram_id,
+          `✅ <b>Your support case has been fully closed.</b>\n\nThank you! If you need further help, feel free to open a new request.`,
+          { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
+        );
+      } catch {}
+
+    } else {
+      // Message flow: if already awaiting_approval, just update member ID silently — don't double-send
+      if (task.status === 'awaiting_approval') {
+        await task.update({ member_id: memberId, updated_at: new Date() });
+        try {
+          await ctx.telegram.sendMessage(
+            SUPPORT_CHAT_ID,
+            `✅ Member ID <b>#${memberId}</b> logged. Already waiting for owner confirmation.`,
+            { parse_mode: 'HTML', message_thread_id: topicId }
+          );
+        } catch {}
+        return;
+      }
+
+      await task.update({ member_id: memberId, status: 'awaiting_approval', updated_at: new Date() });
+
+      try {
+        await ctx.telegram.sendMessage(
+          SUPPORT_CHAT_ID,
+          `✅ Logged member ID <b>#${memberId}</b>. Waiting for owner confirmation…`,
+          { parse_mode: 'HTML', message_thread_id: topicId,
+            reply_markup: { inline_keyboard: [[{ text: '⏳ Waiting for owner confirmation…', callback_data: 'noop' }]] } }
+        );
+      } catch {}
+
+      try {
+        await mainBot.telegram.sendMessage(
+          task.owner_telegram_id,
+          `✅ <b>Has your request been fully resolved?</b>`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '✅ Yes, Fully Done', callback_data: `task_approved_${task.id}` }],
+                [{ text: '❌ Not Yet',         callback_data: `task_not_done_${task.id}` }],
+              ],
+            },
+          }
+        );
+      } catch (err) {
+        logger.warn('Done trigger owner notify failed:', err.message);
+      }
     }
     return;
   }
+
+  // ── Text relay: topic → owner DM (not for call_ended) ───────────────────────
+  if (task.status === 'call_ended') return;
 
   try {
     await mainBot.telegram.sendMessage(
@@ -286,4 +248,4 @@ const handleSupportTopicMessage = async (ctx) => {
   }
 };
 
-module.exports = { supportStart, getChatId, getTopicId, supClaim, supDone, supForceClose, handleSupportTopicMessage };
+module.exports = { supportStart, getChatId, getTopicId, supClaim, supDone, handleSupportTopicMessage };
