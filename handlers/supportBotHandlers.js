@@ -119,7 +119,7 @@ const supSwitchMember = async (ctx) => {
   const taskId = parseInt(ctx.match[1], 10);
   const task   = await SupportTask.findByPk(taskId);
 
-  if (!task || ['closed', 'cancelled'].includes(task.status)) {
+  if (!task || ['closed', 'cancelled', 'call_ended'].includes(task.status)) {
     return ctx.answerCbQuery('⚠️ Case already closed.', { show_alert: true });
   }
 
@@ -177,18 +177,36 @@ const handleSupportTopicMessage = async (ctx) => {
   // ── Media relay: topic → owner DM (not for call_ended — call is over) ────────
   if (!ctx.message.text) {
     if (task.status === 'call_ended') return;
+
+    let rawFileId, mediaType;
+    if (ctx.message.photo) {
+      rawFileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+      mediaType = 'photo';
+    } else if (ctx.message.document) {
+      rawFileId = ctx.message.document.file_id;
+      mediaType = 'document';
+    } else if (ctx.message.voice) {
+      rawFileId = ctx.message.voice.file_id;
+      mediaType = 'voice';
+    } else {
+      return; // sticker, video note, etc — ignore
+    }
+
     const caption = ctx.message.caption || '';
+    const captionOpt = caption ? { caption: `💬 <b>Support:</b>\n${caption}`, parse_mode: 'HTML' } : { parse_mode: 'HTML' };
+
     try {
-      if (ctx.message.photo) {
-        const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-        await mainBot.telegram.sendPhoto(task.owner_telegram_id, fileId,
-          { caption: caption ? `💬 <b>Support:</b>\n${caption}` : undefined, parse_mode: 'HTML' });
-      } else if (ctx.message.document) {
-        await mainBot.telegram.sendDocument(task.owner_telegram_id, ctx.message.document.file_id,
-          { caption: caption ? `💬 <b>Support:</b>\n${caption}` : undefined, parse_mode: 'HTML' });
-      } else if (ctx.message.voice) {
-        await mainBot.telegram.sendVoice(task.owner_telegram_id, ctx.message.voice.file_id,
-          { caption: caption ? `💬 <b>Support:</b>\n${caption}` : undefined, parse_mode: 'HTML' });
+      // Telegram file_ids are bot-specific — resolve to a URL using supportBot token
+      // so mainBot can re-upload the file to the owner's DM
+      const fileInfo = await ctx.telegram.getFile(rawFileId);
+      const fileUrl  = `https://api.telegram.org/file/bot${process.env.SUPPORT_BOT_TOKEN}/${fileInfo.file_path}`;
+
+      if (mediaType === 'photo') {
+        await mainBot.telegram.sendPhoto(task.owner_telegram_id, { url: fileUrl }, captionOpt);
+      } else if (mediaType === 'document') {
+        await mainBot.telegram.sendDocument(task.owner_telegram_id, { url: fileUrl }, captionOpt);
+      } else if (mediaType === 'voice') {
+        await mainBot.telegram.sendVoice(task.owner_telegram_id, { url: fileUrl }, captionOpt);
       }
     } catch (err) {
       logger.warn('Topic→owner media relay failed:', err.message);

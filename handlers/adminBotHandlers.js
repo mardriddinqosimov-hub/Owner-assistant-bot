@@ -1033,7 +1033,12 @@ const haTeamMemberRemove = async (ctx) => {
     const SupportMember = require('../models/SupportMember');
     const id = parseInt(ctx.match[1], 10);
     const m  = await SupportMember.findByPk(id);
-    const blockKey = m?.block;
+    if (!m) {
+      return ctx.editMessageText('❌ Member not found or already removed.', {
+        reply_markup: { inline_keyboard: [[{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]] },
+      });
+    }
+    const blockKey = m.block;
     await SupportMember.destroy({ where: { id } });
     ctx.match = ['', blockKey];
     await haTeamMembers(ctx);
