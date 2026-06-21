@@ -868,50 +868,31 @@ const haBlocks = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const SupportMember = require('../models/SupportMember');
-    const memberCount = await SupportMember.count();
-
-    await ctx.editMessageText(
-      `🏷 <b>Blocks</b>\n\nSelect a section:`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '👥 Company Owners', callback_data: 'ha_block_owners' }],
-            [{ text: `👤 Team Members  (${memberCount})`, callback_data: 'ha_team_members' }],
-            [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
-          ],
-        },
-      }
-    );
-  } catch (err) {
-    logger.error('haBlocks error:', err);
-  }
-};
-
-// Existing block-by-block owner list (previously haBlocks content)
-const haBlockOwners = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const counts = await Promise.all(
-      BLOCKS.map(b => User.count({ where: { block: b.key, deleted_at: null } }))
-    );
-    const unassigned = await User.count({ where: { block: null, deleted_at: null } });
+    const [counts, unassigned, memberCount] = await Promise.all([
+      Promise.all(BLOCKS.map(b => User.count({ where: { block: b.key, deleted_at: null } }))),
+      User.count({ where: { block: null, deleted_at: null } }),
+      SupportMember.count(),
+    ]);
 
     const buttons = BLOCKS.map((b, i) => [{
       text: `${b.label}  (${counts[i]})`,
       callback_data: `ha_block_view_${b.key}`,
     }]);
     buttons.push([{ text: `❓ Unassigned  (${unassigned})`, callback_data: 'ha_block_view_unassigned' }]);
-    buttons.push([{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]);
+    buttons.push([{ text: `👤 Team Members  (${memberCount})`, callback_data: 'ha_team_members' }]);
+    buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
 
     await ctx.editMessageText(
-      `👥 <b>Company Owners by Block</b>\n\nSelect a block to view its owners:`,
+      `🏷 <b>Blocks</b>\n\nSelect a block to view its owners:`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
     );
   } catch (err) {
-    logger.error('haBlockOwners error:', err);
+    logger.error('haBlocks error:', err);
   }
 };
+
+// kept for back-compat (ha_block_owners action still registered)
+const haBlockOwners = haBlocks;
 
 const haBlockDetail = async (ctx) => {
   try {
@@ -930,7 +911,7 @@ const haBlockDetail = async (ctx) => {
     if (!users.length) {
       return ctx.editMessageText(
         `🏷 <b>${title}</b>\n\nNo owners assigned to this block yet.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Owners', callback_data: 'ha_block_owners' }]] } }
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Owners', callback_data: 'ha_blocks' }]] } }
       );
     }
 
@@ -938,7 +919,7 @@ const haBlockDetail = async (ctx) => {
       text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'}${u.blocked ? ' 🚫' : ''}`,
       callback_data: `ha_user_${u.id}`,
     }]);
-    buttons.push([{ text: '◀️ Owners', callback_data: 'ha_block_owners' }]);
+    buttons.push([{ text: '◀️ Owners', callback_data: 'ha_blocks' }]);
 
     await ctx.editMessageText(
       `🏷 <b>${title}</b>  (${users.length} owner${users.length !== 1 ? 's' : ''})`,
