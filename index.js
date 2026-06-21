@@ -278,7 +278,8 @@ function setupSupportBot() {
   supportBot.command('chatid', supportBotHandlers.getChatId);
   supportBot.command('getid', supportBotHandlers.getTopicId);
   supportBot.action('noop', ctx => ctx.answerCbQuery());
-  supportBot.action(/^sup_claim_(\d+)$/,       supportBotHandlers.supClaim);
+  supportBot.action(/^sup_pick_(\d+)_(\d+)$/,  supportBotHandlers.supPickMember);
+  supportBot.action(/^sup_switch_(\d+)$/,      supportBotHandlers.supSwitchMember);
   supportBot.action(/^sup_done_(\d+)$/,        supportBotHandlers.supDone);
   supportBot.on('message', supportBotHandlers.handleSupportTopicMessage);
 }

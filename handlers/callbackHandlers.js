@@ -1506,12 +1506,13 @@ const specialTaskCall = async (ctx) => {
           `🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n👤 Username: @${username}` : ''}\n\n` +
           `Claim the case, then tap <b>📞 Call Owner</b> to open their Telegram profile and call them directly.\n\n` +
           `When done, type <b>Done #YourID</b> in this topic to close the case.`;
+        const { memberKeyboard } = require('./supportBotHandlers');
         const callMsgOpts = {
           parse_mode: 'HTML',
           message_thread_id: topicId,
           reply_markup: {
             inline_keyboard: [
-              [{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }],
+              ...memberKeyboard(task.id),
               [{ text: '📞 Call Owner', url: callUrl }],
             ],
           },

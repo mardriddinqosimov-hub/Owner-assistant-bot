@@ -4,13 +4,38 @@ const { getMainBot } = require('../services/notificationService');
 
 const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
 
+// ── Member list helpers ───────────────────────────────────────────────────────
+// Set SUPPORT_MEMBERS in .env as: Name:ID,Name:ID,...
+// Example: LEADER MO:MO01,JOHN:JN02,SARA:SR03
+
+function getMembers() {
+  const raw = process.env.SUPPORT_MEMBERS || '';
+  if (!raw.trim()) return [{ name: 'Support', id: '01' }];
+  return raw.split(',').map(m => {
+    const parts = m.trim().split(':');
+    return { name: (parts[0] || 'Support').trim(), id: (parts[1] || '').trim() };
+  }).filter(m => m.name);
+}
+
+function memberKeyboard(taskId) {
+  return getMembers().map((m, i) => [{
+    text: `👤 ${m.name}${m.id ? `  —  #${m.id}` : ''}`,
+    callback_data: `sup_pick_${taskId}_${i}`,
+  }]);
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
 const supportStart = async (ctx) => {
+  const members = getMembers().map(m => `• ${m.name}${m.id ? ` (#${m.id})` : ''}`).join('\n');
   await ctx.reply(
     `👋 <b>OA Support Bot</b>\n\n` +
-    `You'll receive owner requests here as dedicated topics.\n\n` +
-    `Click <b>✅ Claim Case</b> on a request to take it.\n` +
-    `Then chat directly in the topic — messages relay to the owner.\n` +
-    `When done, type <code>Done #YourMemberID</code> in the topic to close the case.`,
+    `Owner requests arrive as dedicated topics.\n\n` +
+    `<b>How to handle a case:</b>\n` +
+    `1. Tap your name on the request to claim it\n` +
+    `2. Chat directly in the topic — owner sees everything\n` +
+    `3. Type <code>Done #YourMemberID</code> when finished\n\n` +
+    `<b>Current members:</b>\n${members}`,
     { parse_mode: 'HTML' }
   );
 };
@@ -28,22 +53,25 @@ const getTopicId = async (ctx) => {
   }
 };
 
-// Support member clicks "✅ Claim Case"
-const supClaim = async (ctx) => {
-  const taskId = parseInt(ctx.match[1], 10);
-  const task = await SupportTask.findByPk(taskId);
+// Member clicks their own button on a new request
+const supPickMember = async (ctx) => {
+  const taskId    = parseInt(ctx.match[1], 10);
+  const memberIdx = parseInt(ctx.match[2], 10);
+  const task      = await SupportTask.findByPk(taskId);
 
-  if (!task || task.status !== 'pending') {
-    return ctx.answerCbQuery('⚠️ Already claimed or closed.', { show_alert: true });
+  if (!task || ['closed', 'cancelled', 'call_ended'].includes(task.status)) {
+    return ctx.answerCbQuery('⚠️ Case is no longer open.', { show_alert: true });
   }
 
-  const claimerName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ')
-    || ctx.from.username
-    || `ID ${ctx.from.id}`;
+  const members = getMembers();
+  const member  = members[memberIdx];
+  if (!member) return ctx.answerCbQuery('⚠️ Member not found.', { show_alert: true });
+
+  const wasUnclaimed = task.status === 'pending';
 
   await task.update({
     status:              'in_process',
-    claimed_by:          claimerName,
+    claimed_by:          member.name,
     claimed_telegram_id: String(ctx.from.id),
     claimed_at:          new Date(),
     updated_at:          new Date(),
@@ -52,32 +80,52 @@ const supClaim = async (ctx) => {
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [{ text: `👤 Claimed by ${claimerName}`, callback_data: 'noop' }],
-        [{ text: '✅ Mark as Done', callback_data: `sup_done_${taskId}` }],
+        [{ text: `👤 ${member.name}${member.id ? ` — #${member.id}` : ''} — Handling`, callback_data: 'noop' }],
+        [{ text: '✅ Mark as Done',  callback_data: `sup_done_${taskId}` }],
+        [{ text: '🔄 Switch Member', callback_data: `sup_switch_${taskId}` }],
       ],
     });
   } catch {}
 
   await ctx.answerCbQuery('Case claimed!');
 
-  const mainBot = getMainBot();
-  if (mainBot) {
-    try {
-      await mainBot.telegram.sendMessage(
-        task.owner_telegram_id,
-        `⏳ <b>${claimerName} from support is on your case!</b>\n\nFeel free to send more details here anytime — they'll see everything.`,
-        { parse_mode: 'HTML' }
-      );
-    } catch (err) {
-      logger.warn('Owner claim notify failed:', err.message);
+  // Notify owner only on first claim (not when switching members)
+  if (wasUnclaimed) {
+    const mainBot = getMainBot();
+    if (mainBot) {
+      try {
+        await mainBot.telegram.sendMessage(
+          task.owner_telegram_id,
+          `⏳ <b>${member.name} from support is on your case!</b>\n\nFeel free to send more details here anytime — they'll see everything.`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (err) {
+        logger.warn('Owner claim notify failed:', err.message);
+      }
     }
   }
 };
 
-// Support member clicks "✅ Mark as Done" — prompts to type Done #MemberID
+// Someone clicks "Switch Member" — re-shows all member buttons to re-assign
+const supSwitchMember = async (ctx) => {
+  const taskId = parseInt(ctx.match[1], 10);
+  const task   = await SupportTask.findByPk(taskId);
+
+  if (!task || ['closed', 'cancelled'].includes(task.status)) {
+    return ctx.answerCbQuery('⚠️ Case already closed.', { show_alert: true });
+  }
+
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: memberKeyboard(taskId) });
+  } catch {}
+
+  await ctx.answerCbQuery('Select the member taking over.');
+};
+
+// Member clicks "✅ Mark as Done" — prompts to type Done #MemberID
 const supDone = async (ctx) => {
   const taskId = parseInt(ctx.match[1], 10);
-  const task = await SupportTask.findByPk(taskId);
+  const task   = await SupportTask.findByPk(taskId);
 
   if (!task || task.status !== 'in_process') {
     return ctx.answerCbQuery('⚠️ Case not active.', { show_alert: true });
@@ -118,7 +166,7 @@ const handleSupportTopicMessage = async (ctx) => {
   const mainBot = getMainBot();
   if (!mainBot) return;
 
-  // ── Media relay: topic → owner DM (not for call_ended — call is over) ─────────
+  // ── Media relay: topic → owner DM (not for call_ended — call is over) ────────
   if (!ctx.message.text) {
     if (task.status === 'call_ended') return;
     const caption = ctx.message.caption || '';
@@ -140,13 +188,13 @@ const handleSupportTopicMessage = async (ctx) => {
     return;
   }
 
-  // ── "Done #MemberID" — closes the case ──────────────────────────────────────
+  // ── "Done #MemberID" — closes the case ───────────────────────────────────────
   const doneMatch = ctx.message.text.match(/^Done\s+#(\S+)/i);
   if (doneMatch) {
     const memberId = doneMatch[1];
 
     if (task.status === 'call_ended') {
-      // Call flow: owner already confirmed by tapping "Call Ended" — close directly
+      // Call flow: owner already confirmed via "Call Ended" — close directly
       const closedAtDate = new Date();
       const durationMs   = closedAtDate - new Date(task.created_at);
       const durationMins = Math.round(durationMs / 60000);
@@ -189,7 +237,7 @@ const handleSupportTopicMessage = async (ctx) => {
       } catch {}
 
     } else {
-      // Message flow: if already awaiting_approval, just update member ID silently — don't double-send
+      // Message flow: if already awaiting_approval, just update member ID — don't double-send
       if (task.status === 'awaiting_approval') {
         await task.update({ member_id: memberId, updated_at: new Date() });
         try {
@@ -234,7 +282,7 @@ const handleSupportTopicMessage = async (ctx) => {
     return;
   }
 
-  // ── Text relay: topic → owner DM (not for call_ended) ───────────────────────
+  // ── Text relay: topic → owner DM (not for call_ended) ────────────────────────
   if (task.status === 'call_ended') return;
 
   try {
@@ -248,4 +296,9 @@ const handleSupportTopicMessage = async (ctx) => {
   }
 };
 
-module.exports = { supportStart, getChatId, getTopicId, supClaim, supDone, handleSupportTopicMessage };
+module.exports = {
+  supportStart, getChatId, getTopicId,
+  memberKeyboard,
+  supPickMember, supSwitchMember, supDone,
+  handleSupportTopicMessage,
+};

@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Order = require('../models/Order');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const notifService = require('../services/notificationService');
+const { memberKeyboard } = require('./supportBotHandlers');
 const { notifyHeadAdmin } = notifService;
 const {
   orderSessions,
@@ -331,7 +332,7 @@ const handleText = async (ctx) => {
         const requestMsgOpts = {
           parse_mode: 'HTML',
           message_thread_id: topicId,
-          reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${task.id}` }]] },
+          reply_markup: { inline_keyboard: memberKeyboard(task.id) },
         };
 
         // Post the new request into the owner's topic — if it fails, create a fresh topic and retry once
@@ -445,7 +446,7 @@ const handleText = async (ctx) => {
                 SUPPORT_CHAT_ID,
                 `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${activeTask.owner_name}</b>\n\n📝 Request:\n${activeTask.request_text || '(no text)'}`,
                 { parse_mode: 'HTML', message_thread_id: topicId,
-                  reply_markup: { inline_keyboard: [[{ text: '✅ Claim Case', callback_data: `sup_claim_${activeTask.id}` }]] } }
+                  reply_markup: { inline_keyboard: memberKeyboard(activeTask.id) } }
               );
             } catch (err) {
               logger.warn('Lazy topic creation (relay) failed:', err.message);
