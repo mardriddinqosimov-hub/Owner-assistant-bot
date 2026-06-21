@@ -6,10 +6,22 @@ const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
 
 // ── Member list helpers ───────────────────────────────────────────────────────
 
-async function memberKeyboard(taskId) {
+async function memberKeyboard(taskId, ownerTelegramId) {
   try {
     const SupportMember = require('../models/SupportMember');
-    const members = await SupportMember.findAll({ order: [['id', 'ASC']] });
+    const User = require('../models/User');
+
+    let members = [];
+    if (ownerTelegramId) {
+      const owner = await User.findOne({ where: { telegram_id: String(ownerTelegramId) } });
+      if (owner?.block) {
+        members = await SupportMember.findAll({ where: { block: owner.block }, order: [['id', 'ASC']] });
+      }
+    }
+    // Fallback: show all members if owner has no block or block has no members
+    if (!members.length) {
+      members = await SupportMember.findAll({ order: [['id', 'ASC']] });
+    }
     if (!members.length) {
       return [[{ text: '⚠️ No members configured', callback_data: 'noop' }]];
     }
@@ -112,7 +124,7 @@ const supSwitchMember = async (ctx) => {
   }
 
   try {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: await memberKeyboard(taskId) });
+    await ctx.editMessageReplyMarkup({ inline_keyboard: await memberKeyboard(taskId, task.owner_telegram_id) });
   } catch {}
 
   await ctx.answerCbQuery('Select the member taking over.');

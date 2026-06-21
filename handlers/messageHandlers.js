@@ -332,7 +332,7 @@ const handleText = async (ctx) => {
         const requestMsgOpts = {
           parse_mode: 'HTML',
           message_thread_id: topicId,
-          reply_markup: { inline_keyboard: await memberKeyboard(task.id) },
+          reply_markup: { inline_keyboard: await memberKeyboard(task.id, task.owner_telegram_id) },
         };
 
         // Post the new request into the owner's topic — if it fails, create a fresh topic and retry once
@@ -446,7 +446,7 @@ const handleText = async (ctx) => {
                 SUPPORT_CHAT_ID,
                 `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${activeTask.owner_name}</b>\n\n📝 Request:\n${activeTask.request_text || '(no text)'}`,
                 { parse_mode: 'HTML', message_thread_id: topicId,
-                  reply_markup: { inline_keyboard: await memberKeyboard(activeTask.id) } }
+                  reply_markup: { inline_keyboard: await memberKeyboard(activeTask.id, activeTask.owner_telegram_id) } }
               );
             } catch (err) {
               logger.warn('Lazy topic creation (relay) failed:', err.message);
