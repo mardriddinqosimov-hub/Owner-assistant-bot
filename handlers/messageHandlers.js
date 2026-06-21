@@ -513,16 +513,18 @@ async function relaySupportMedia(ctx, fileId, type) {
   if (!activeTask.topic_id) return false;
   const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
   const caption = `👤 <b>${senderName}:</b>`;
+  const opts = { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id };
   try {
+    // file_ids are bot-specific — resolve via mainBot token so supBot can re-upload
+    const fileInfo = await ctx.telegram.getFile(fileId);
+    const fileUrl  = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${fileInfo.file_path}`;
+
     if (type === 'photo') {
-      await supBot.telegram.sendPhoto(SUPPORT_CHAT_ID, fileId,
-        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+      await supBot.telegram.sendPhoto(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
     } else if (type === 'voice') {
-      await supBot.telegram.sendVoice(SUPPORT_CHAT_ID, fileId,
-        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+      await supBot.telegram.sendVoice(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
     } else {
-      await supBot.telegram.sendDocument(SUPPORT_CHAT_ID, fileId,
-        { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id });
+      await supBot.telegram.sendDocument(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
     }
   } catch (err) {
     logger.warn('Owner→topic media relay failed:', err.message);
