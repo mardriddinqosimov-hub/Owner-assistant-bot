@@ -16,7 +16,8 @@ const managementBotHandlers = require('./handlers/managementBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
 const supportBotHandlers = require('./handlers/supportBotHandlers');
 const notifService = require('./services/notificationService');
-require('./models/SupportTask'); // ensure table is created on sync
+require('./models/SupportTask');   // ensure table is created on sync
+require('./models/SupportMember'); // ensure table is created on sync
 const dashboardModule = require('./routes/dashboard');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -234,9 +235,14 @@ function setupAdminBot() {
   adminBot.action(/^ha_admin_remove_(\d+)$/,                 adminBotHandlers.haAdminRemove);
 
   adminBot.action('ha_blocks',                               adminBotHandlers.haBlocks);
+  adminBot.action('ha_block_owners',                         adminBotHandlers.haBlockOwners);
   adminBot.action(/^ha_block_view_([\w]+)$/,                 adminBotHandlers.haBlockDetail);
   adminBot.action(/^ha_assign_block_(\d+)$/,                 adminBotHandlers.haAssignBlock);
   adminBot.action(/^ha_setblock_(\d+)_([\w]+)$/,             adminBotHandlers.haSetBlock);
+  adminBot.action('ha_team_members',                         adminBotHandlers.haTeamMembers);
+  adminBot.action('ha_member_add',                           adminBotHandlers.haTeamMemberAdd);
+  adminBot.action(/^ha_member_remove_confirm_(\d+)$/,        adminBotHandlers.haTeamMemberRemoveConfirm);
+  adminBot.action(/^ha_member_remove_(\d+)$/,                adminBotHandlers.haTeamMemberRemove);
 
   adminBot.on('text', adminBotHandlers.haHandleText);
 }

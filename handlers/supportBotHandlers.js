@@ -5,37 +5,33 @@ const { getMainBot } = require('../services/notificationService');
 const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
 
 // ── Member list helpers ───────────────────────────────────────────────────────
-// Set SUPPORT_MEMBERS in .env as: Name:ID,Name:ID,...
-// Example: LEADER MO:MO01,JOHN:JN02,SARA:SR03
 
-function getMembers() {
-  const raw = process.env.SUPPORT_MEMBERS || '';
-  if (!raw.trim()) return [{ name: 'Support', id: '01' }];
-  return raw.split(',').map(m => {
-    const parts = m.trim().split(':');
-    return { name: (parts[0] || 'Support').trim(), id: (parts[1] || '').trim() };
-  }).filter(m => m.name);
-}
-
-function memberKeyboard(taskId) {
-  return getMembers().map((m, i) => [{
-    text: `👤 ${m.name}${m.id ? `  —  #${m.id}` : ''}`,
-    callback_data: `sup_pick_${taskId}_${i}`,
-  }]);
+async function memberKeyboard(taskId) {
+  try {
+    const SupportMember = require('../models/SupportMember');
+    const members = await SupportMember.findAll({ order: [['id', 'ASC']] });
+    if (!members.length) {
+      return [[{ text: '⚠️ No members configured', callback_data: 'noop' }]];
+    }
+    return members.map(m => [{
+      text: `👤 ${m.name}  —  #${m.member_id}`,
+      callback_data: `sup_pick_${taskId}_${m.id}`,
+    }]);
+  } catch {
+    return [[{ text: '⚠️ Error loading members', callback_data: 'noop' }]];
+  }
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 const supportStart = async (ctx) => {
-  const members = getMembers().map(m => `• ${m.name}${m.id ? ` (#${m.id})` : ''}`).join('\n');
   await ctx.reply(
     `👋 <b>OA Support Bot</b>\n\n` +
     `Owner requests arrive as dedicated topics.\n\n` +
     `<b>How to handle a case:</b>\n` +
     `1. Tap your name on the request to claim it\n` +
     `2. Chat directly in the topic — owner sees everything\n` +
-    `3. Type <code>Done #YourMemberID</code> when finished\n\n` +
-    `<b>Current members:</b>\n${members}`,
+    `3. Type <code>Done #YourMemberID</code> when finished`,
     { parse_mode: 'HTML' }
   );
 };
@@ -55,16 +51,16 @@ const getTopicId = async (ctx) => {
 
 // Member clicks their own button on a new request
 const supPickMember = async (ctx) => {
-  const taskId    = parseInt(ctx.match[1], 10);
-  const memberIdx = parseInt(ctx.match[2], 10);
-  const task      = await SupportTask.findByPk(taskId);
+  const taskId   = parseInt(ctx.match[1], 10);
+  const memberDbId = parseInt(ctx.match[2], 10);
+  const task     = await SupportTask.findByPk(taskId);
 
   if (!task || ['closed', 'cancelled', 'call_ended'].includes(task.status)) {
     return ctx.answerCbQuery('⚠️ Case is no longer open.', { show_alert: true });
   }
 
-  const members = getMembers();
-  const member  = members[memberIdx];
+  const SupportMember = require('../models/SupportMember');
+  const member = await SupportMember.findByPk(memberDbId);
   if (!member) return ctx.answerCbQuery('⚠️ Member not found.', { show_alert: true });
 
   const wasUnclaimed = task.status === 'pending';
@@ -80,7 +76,7 @@ const supPickMember = async (ctx) => {
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [{ text: `👤 ${member.name}${member.id ? ` — #${member.id}` : ''} — Handling`, callback_data: 'noop' }],
+        [{ text: `👤 ${member.name}${member.member_id ? ` — #${member.member_id}` : ''} — Handling`, callback_data: 'noop' }],
         [{ text: '✅ Mark as Done',  callback_data: `sup_done_${taskId}` }],
         [{ text: '🔄 Switch Member', callback_data: `sup_switch_${taskId}` }],
       ],
@@ -116,7 +112,7 @@ const supSwitchMember = async (ctx) => {
   }
 
   try {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: memberKeyboard(taskId) });
+    await ctx.editMessageReplyMarkup({ inline_keyboard: await memberKeyboard(taskId) });
   } catch {}
 
   await ctx.answerCbQuery('Select the member taking over.');

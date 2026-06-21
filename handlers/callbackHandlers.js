@@ -1512,7 +1512,7 @@ const specialTaskCall = async (ctx) => {
           message_thread_id: topicId,
           reply_markup: {
             inline_keyboard: [
-              ...memberKeyboard(task.id),
+              ...(await memberKeyboard(task.id)),
               [{ text: '📞 Call Owner', url: callUrl }],
             ],
           },
