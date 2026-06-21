@@ -1949,7 +1949,7 @@ module.exports = {
   buildOrderSummary, showConfirmation,
   specialTaskMenu, specialTaskMessage, specialTaskCall,
   taskCallEnded, taskOwnerApproved, taskNotDone,
-  specialTaskSessions, callPollIntervals,
+  specialTaskSessions,
   supportStatus, cancelSupportSession,
   ownerRequestsHistory,
 };
