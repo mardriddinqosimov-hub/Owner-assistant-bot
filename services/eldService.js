@@ -28,6 +28,9 @@ async function fetchDriverStatus(companyKey) {
   try {
     const res = await client.get('/latest-driver-status', { params: { limit: 1000 } });
     const data = res.data?.data;
+    if (Array.isArray(data) && data.length > 0) {
+      logger.info('[API DEBUG] driver-status first record fields:', JSON.stringify(data[0]));
+    }
     return Array.isArray(data) ? data : [];
   } catch (err) {
     logger.warn('fetchDriverStatus failed:', err.response?.data?.description || err.message);
@@ -53,10 +56,13 @@ async function fetchVehicleStatus(companyKey) {
       const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
       if (Array.isArray(raw) && raw.length > best.length) {
         logger.info(`fetchVehicleStatus: ${url} returned ${raw.length} records`);
+        if (raw.length > 0) logger.info('[API DEBUG] vehicle-status first record fields:', JSON.stringify(raw[0]));
         best = raw;
-        if (best.length > 5) break; // good enough, stop trying
+        if (best.length > 5) break;
       }
-    } catch {}
+    } catch (err) {
+      logger.info(`fetchVehicleStatus: ${url} failed — ${err.response?.status || err.message}`);
+    }
   }
   if (!best.length) logger.warn('fetchVehicleStatus: all endpoints returned empty');
   return best;
