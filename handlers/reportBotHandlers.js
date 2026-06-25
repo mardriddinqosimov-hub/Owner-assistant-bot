@@ -170,7 +170,7 @@ const handleReportMessage = async (ctx, next) => {
     } catch {}
 
     await processReport(ctx.telegram, chatId, thinkingId, pending);
-  }, 30_000);
+  }, 10_000);
 };
 
 module.exports = { handleReportMessage };
