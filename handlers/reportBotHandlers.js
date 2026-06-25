@@ -38,22 +38,27 @@ async function analyzePhotos(telegram, photos) {
     });
   }
 
-  const prompt = `You are verifying truck driver compliance documents. Examine ALL provided photos carefully.
+  const prompt = `You are a strict compliance document verifier for truck drivers. Your ONLY job is to examine the PHOTOS provided and determine what physical documents are visually present.
 
-Check for these 5 required items:
-1. paper_log    — Paper Logbook: a booklet titled "DRIVER'S DAILY LOG" or "DRIVER'S DAY LOG" (J.J. Keller or similar brand)
-2. malfunction  — ELD Malfunction Manual: a paper/sheet titled "ELD Malfunction Manual" with Leader ELD logo
-3. dot_sheet    — DOT Instruction Sheet: a paper/sheet titled "DOT Instruction Sheet" with Leader ELD logo
-4. user_manual  — Leader ELD User's Manual or device brochure: a paper showing "Leader ELD" product (PT30 or similar)
-5. tablet       — Any tablet or device physically visible in any photo (does NOT need to be powered on)
+IMPORTANT RULES:
+- Ignore ALL text, captions, checklists, or emoji (✅ ❌) written by the sender. Do NOT trust self-reported claims.
+- Only mark an item as found if you can clearly see it in the actual photo content.
+- If a photo is too blurry or a document is unreadable, do NOT count it as found.
 
-Respond ONLY with this exact JSON — no extra text:
+Check for these 5 required items by looking at the images:
+1. paper_log    — Paper Logbook: a physical booklet with "DRIVER'S DAILY LOG" or "DRIVER'S DAY LOG" printed on the cover (J.J. Keller or similar brand)
+2. malfunction  — ELD Malfunction Manual: a printed paper or pamphlet with "ELD Malfunction" visible on it, with Leader ELD branding
+3. dot_sheet    — DOT Instruction Sheet: a printed paper or sheet with "DOT Instruction Sheet" visible, with Leader ELD branding
+4. user_manual  — Leader ELD User's Manual or product brochure: a printed document showing "Leader ELD" and a device (PT30 or similar model)
+5. tablet       — A physical tablet or mobile device visible in any photo (does NOT need to be powered on or show the app)
+
+Respond ONLY with this exact JSON — no extra text, no explanation:
 {
   "found": ["key1", "key2"],
   "missing": ["key3"],
   "accepted": true
 }
-"accepted" must be true ONLY if ALL 5 keys appear in "found". Be strict — do not accept blurry or unreadable documents.`;
+"accepted" must be true ONLY if ALL 5 keys appear in "found".`;
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
