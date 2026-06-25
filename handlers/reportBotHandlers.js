@@ -77,15 +77,18 @@ async function processReport(telegram, chatId, thinkingId, data) {
 
     const foundLabels   = (result.found   || []).map(labelFor);
     const missingLabels = (result.missing || []).map(labelFor);
+    const memberLine    = data.memberId ? `👤 Done by <b>#${data.memberId}</b>\n\n` : '';
 
     let reply;
     if (result.accepted) {
       reply =
         `✅ <b>Report Accepted</b>\n\n` +
+        memberLine +
         foundLabels.map(l => `✅ ${l}`).join('\n');
     } else {
       reply =
         `❌ <b>Report Rejected</b>\n\n` +
+        memberLine +
         (foundLabels.length ? foundLabels.map(l => `✅ ${l}`).join('\n') + '\n\n' : '') +
         missingLabels.map(l => `❌ ${l}`).join('\n') +
         `\n\n⚠️ Please resubmit all required documents from the beginning.`;
@@ -112,17 +115,36 @@ const handleReportMessage = async (ctx, next) => {
   if (String(ctx.chat?.id) !== String(REPORT_GROUP_ID)) return next();
 
   const photo = ctx.message?.photo;
-  if (!photo) return; // ignore text/other messages in report group
+  const text  = ctx.message?.text || ctx.message?.caption || '';
+
+  // Extract member ID like #M450 or #450 from any message in the group
+  const idMatch = text.match(/#([A-Za-z0-9]+)/);
+
+  if (!photo) {
+    // Text-only message: just capture member ID if present, then stop
+    if (idMatch && ctx.from) {
+      const userId = ctx.from.id;
+      if (pendingReports.has(userId)) {
+        pendingReports.get(userId).memberId = idMatch[1];
+      }
+    }
+    return;
+  }
 
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const fileId = photo[photo.length - 1].file_id;
 
   if (!pendingReports.has(userId)) {
-    pendingReports.set(userId, { photos: [], chatId });
+    pendingReports.set(userId, { photos: [], chatId, memberId: null });
   }
   const pending = pendingReports.get(userId);
   pending.photos.push(fileId);
+
+  // Capture member ID from photo caption if present
+  if (idMatch && !pending.memberId) {
+    pending.memberId = idMatch[1];
+  }
 
   // Reset 60-second window on each new photo
   if (pending.timer) clearTimeout(pending.timer);
