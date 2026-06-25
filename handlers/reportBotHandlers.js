@@ -50,7 +50,7 @@ Check for these 5 required items by looking at the images:
 2. malfunction  — ELD Malfunction Manual: a printed paper or pamphlet with "ELD Malfunction" visible on it, with Leader ELD branding
 3. dot_sheet    — DOT Instruction Sheet: a printed paper or sheet with "DOT Instruction Sheet" visible, with Leader ELD branding
 4. user_manual  — Leader ELD User's Manual or product brochure: a printed document showing "Leader ELD" and a device (PT30 or similar model)
-5. tablet       — A real, physical tablet or mobile device held in hand or placed on a surface. It must be an actual device, NOT a printed illustration, drawing, or product photo printed on paper/brochure. If the only "tablet" visible is a picture of a device printed on a document, do NOT count it.
+5. tablet       — A real, physical tablet or mobile device. It can be held in hand, placed on a surface, mounted on a dashboard or windshield mount, or anywhere in the truck cab. The screen may be on or off. It must be an actual physical device — NOT a printed illustration, drawing, or product image printed on paper/brochure. If the only "tablet" visible is a picture of a device printed on a document, do NOT count it.
 
 Respond ONLY with this exact JSON — no extra text, no explanation:
 {
