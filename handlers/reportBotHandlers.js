@@ -119,13 +119,22 @@ async function processReport(telegram, chatId, thinkingId, data) {
 const handleReportMessage = async (ctx, next) => {
   if (String(ctx.chat?.id) !== String(REPORT_GROUP_ID)) return next();
 
-  const photo = ctx.message?.photo;
-  const text  = ctx.message?.text || ctx.message?.caption || '';
+  const photo    = ctx.message?.photo;
+  const document = ctx.message?.document;
+  const text     = ctx.message?.text || ctx.message?.caption || '';
 
   // Extract member ID like #M450 or #450 from any message in the group
   const idMatch = text.match(/#([A-Za-z0-9]+)/);
 
-  if (!photo) {
+  // Determine file ID: native photo or image/document file attachment
+  let fileId = null;
+  if (photo) {
+    fileId = photo[photo.length - 1].file_id;
+  } else if (document) {
+    fileId = document.file_id;
+  }
+
+  if (!fileId) {
     // Text-only message: just capture member ID if present, then stop
     if (idMatch && ctx.from) {
       const userId = ctx.from.id;
@@ -138,7 +147,6 @@ const handleReportMessage = async (ctx, next) => {
 
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
-  const fileId = photo[photo.length - 1].file_id;
 
   if (!pendingReports.has(userId)) {
     pendingReports.set(userId, { photos: [], chatId, memberId: null, replyToId: null });
