@@ -141,24 +141,31 @@ const handleReportMessage = async (ctx, next) => {
   const fileId = photo[photo.length - 1].file_id;
 
   if (!pendingReports.has(userId)) {
-    pendingReports.set(userId, { photos: [], chatId, memberId: null });
+    pendingReports.set(userId, { photos: [], chatId, memberId: null, replyToId: null });
   }
   const pending = pendingReports.get(userId);
   pending.photos.push(fileId);
+
+  // Remember the first message so the bot can reply to it
+  if (!pending.replyToId) {
+    pending.replyToId = ctx.message.message_id;
+  }
 
   // Capture member ID from photo caption if present
   if (idMatch && !pending.memberId) {
     pending.memberId = idMatch[1];
   }
 
-  // Reset 60-second window on each new photo
+  // Reset 30-second window on each new photo
   if (pending.timer) clearTimeout(pending.timer);
   pending.timer = setTimeout(async () => {
     pendingReports.delete(userId);
 
     let thinkingId = null;
     try {
-      const msg = await ctx.telegram.sendMessage(chatId, '🔍 Analyzing documents, please wait…');
+      const msg = await ctx.telegram.sendMessage(chatId, '🔍 Analyzing documents, please wait…', {
+        reply_to_message_id: pending.replyToId,
+      });
       thinkingId = msg.message_id;
     } catch {}
 
