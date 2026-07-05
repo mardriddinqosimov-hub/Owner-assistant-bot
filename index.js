@@ -15,7 +15,6 @@ const adminBotHandlers      = require('./handlers/adminBotHandlers');
 const managementBotHandlers = require('./handlers/managementBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
 const supportBotHandlers = require('./handlers/supportBotHandlers');
-const reportBotHandlers  = require('./handlers/reportBotHandlers');
 const notifService = require('./services/notificationService');
 require('./models/SupportTask');   // ensure table is created on sync
 require('./models/SupportMember'); // ensure table is created on sync
@@ -288,8 +287,7 @@ function setupSupportBot() {
   supportBot.action(/^sup_pick_(\d+)_(\d+)$/,  supportBotHandlers.supPickMember);
   supportBot.action(/^sup_switch_(\d+)$/,      supportBotHandlers.supSwitchMember);
   supportBot.action(/^sup_done_(\d+)$/,        supportBotHandlers.supDone);
-  supportBot.on('message', reportBotHandlers.handleReportMessage);      // report group — calls next() for non-report messages
-  supportBot.on('message', supportBotHandlers.handleSupportTopicMessage); // support topics
+supportBot.on('message', supportBotHandlers.handleSupportTopicMessage); // support topics
 }
 
 // ─── GPS vehicle polling (every 30 sec) ───────────────────────────────────────
