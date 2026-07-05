@@ -5,6 +5,8 @@ const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
 const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents } = require('../services/eldService');
 const notifService = require('../services/notificationService');
+const menuTracker = require('../utils/menuTracker');
+const { sendMainMenu } = require('../utils/mainMenu');
 
 function isActiveDriver(d) {
   if (d.status !== undefined) return String(d.status).toLowerCase() === 'active';
@@ -144,7 +146,7 @@ const start = async (ctx) => {
       ? `✅ Connected to <b>${user.company_name || 'ELD'}</b>`
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
-    await ctx.reply(
+    const menuMsg = await ctx.reply(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\n` +
       `ELD Driver Monitoring &amp; Device Orders\n\n` +
       `I'll help you monitor your drivers and manage device orders!\n\n` +
@@ -164,6 +166,7 @@ const start = async (ctx) => {
         },
       }
     );
+    menuTracker.set(ctx.from.id, menuMsg.message_id);
 
   } catch (error) {
     logger.error('Start error:', error);
@@ -325,6 +328,13 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
     ? new Date(record.inspection_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
     : 'Unknown date';
 
+  // Delete old menu so notification + fresh menu appear at bottom
+  const oldMsgId = menuTracker.get(user.telegram_id);
+  if (oldMsgId) {
+    try { await bot.telegram.deleteMessage(user.telegram_id, oldMsgId); } catch {}
+    menuTracker.del(user.telegram_id);
+  }
+
   await bot.telegram.sendMessage(
     user.telegram_id,
     `🚔 <b>DOT Inspection Alert!</b>\n\n` +
@@ -337,6 +347,8 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
     `\nView details in <b>DOT Inspections</b> → menu.`,
     { parse_mode: 'HTML' }
   );
+
+  await sendMainMenu(bot, user.telegram_id);
 
   await record.update({ notified: true });
   logger.info(`DOT inspection alert sent to user ${user.id}: ${externalId}`);

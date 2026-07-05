@@ -1,4 +1,6 @@
 const logger = require('../utils/logger');
+const menuTracker = require('../utils/menuTracker');
+const { sendMainMenu } = require('../utils/mainMenu');
 
 let _accountingBot  = null;
 let _mainBot        = null;
@@ -112,7 +114,14 @@ async function notifyHeadAdminNewUser(user) {
 async function notifyCustomer(telegramId, message, options = {}) {
   if (!_mainBot) return;
   try {
+    // Delete old menu so notification + fresh menu appear at bottom
+    const oldMsgId = menuTracker.get(telegramId);
+    if (oldMsgId) {
+      try { await _mainBot.telegram.deleteMessage(telegramId, oldMsgId); } catch {}
+      menuTracker.del(telegramId);
+    }
     await _mainBot.telegram.sendMessage(telegramId, message, options);
+    await sendMainMenu(_mainBot, telegramId);
   } catch (err) {
     logger.warn('Customer notification failed:', err.message);
   }

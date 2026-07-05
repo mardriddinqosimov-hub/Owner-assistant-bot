@@ -16,6 +16,7 @@ const managementBotHandlers = require('./handlers/managementBotHandlers');
 const groupHandlers = require('./handlers/groupHandlers');
 const supportBotHandlers = require('./handlers/supportBotHandlers');
 const notifService = require('./services/notificationService');
+const menuTracker = require('./utils/menuTracker');
 require('./models/SupportTask');   // ensure table is created on sync
 require('./models/SupportMember'); // ensure table is created on sync
 const dashboardModule = require('./routes/dashboard');
@@ -62,7 +63,9 @@ bot.use(async (ctx, next) => {
     ctx.editMessageText = async (text, opts) => {
       try {
         await ctx.deleteMessage();
-        return await ctx.reply(text, opts);
+        const msg = await ctx.reply(text, opts);
+        menuTracker.set(ctx.from.id, msg.message_id);
+        return msg;
       } catch {
         return originalEdit(text, opts);
       }
