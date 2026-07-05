@@ -55,6 +55,22 @@ bot.use(async (ctx, next) => {
   }
 });
 
+// ─── Menu always at bottom: delete old message, send fresh reply ─────────────
+bot.use(async (ctx, next) => {
+  if (ctx.callbackQuery && ctx.chat?.type === 'private') {
+    const originalEdit = ctx.editMessageText.bind(ctx);
+    ctx.editMessageText = async (text, opts) => {
+      try {
+        await ctx.deleteMessage();
+        return await ctx.reply(text, opts);
+      } catch {
+        return originalEdit(text, opts);
+      }
+    };
+  }
+  return next();
+});
+
 // ─── Main bot commands ────────────────────────────────────────────────────────
 bot.start(commandHandlers.start);
 bot.command('drivers', commandHandlers.drivers);
