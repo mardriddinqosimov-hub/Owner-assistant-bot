@@ -22,7 +22,8 @@ function statusGroupKey(status) {
   if (!status || status === 'OFF DUTY') return 'OFF';
   if (status === 'ON DUTY') return 'ON';
   if (status === 'SLEEPER BERTH') return 'SB';
-  return 'D'; // DRIVING, PERSONAL CONVEYANCE, YARD MOVE
+  if (status === 'DRIVING' || status === 'PERSONAL CONVEYANCE' || status === 'YARD MOVE') return 'D';
+  return 'OFF'; // unknown → Off Duty, not Driving
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

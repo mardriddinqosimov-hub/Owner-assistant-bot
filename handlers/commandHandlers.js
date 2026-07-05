@@ -14,16 +14,33 @@ function isActiveDriver(d) {
 }
 
 const STATUS_LABELS = {
+  // DS_ prefixed codes (Leader ELD)
   'DS_D':   'DRIVING',
   'DS_ON':  'ON DUTY',
   'DS_OFF': 'OFF DUTY',
   'DS_SB':  'SLEEPER BERTH',
   'DS_PC':  'PERSONAL CONVEYANCE',
   'DS_YM':  'YARD MOVE',
+  // Raw short codes
+  'D':    'DRIVING',
+  'DR':   'DRIVING',
+  'ON':   'ON DUTY',
+  'OFF':  'OFF DUTY',
+  'SB':   'SLEEPER BERTH',
+  'PC':   'PERSONAL CONVEYANCE',
+  'YM':   'YARD MOVE',
+  // Already-mapped full strings (idempotent)
+  'DRIVING':            'DRIVING',
+  'ON DUTY':            'ON DUTY',
+  'OFF DUTY':           'OFF DUTY',
+  'SLEEPER BERTH':      'SLEEPER BERTH',
+  'PERSONAL CONVEYANCE':'PERSONAL CONVEYANCE',
+  'YARD MOVE':          'YARD MOVE',
 };
 
 function mapStatus(code) {
-  return STATUS_LABELS[code] || code || 'Unknown';
+  if (!code) return 'OFF DUTY';
+  return STATUS_LABELS[String(code).toUpperCase()] || STATUS_LABELS[code] || 'OFF DUTY';
 }
 
 async function syncDrivers(user, companyKey, prefetchedDrivers) {
@@ -75,7 +92,7 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       driver_name:      name,
       truck_number:     rawTruck || existing?.truck_number || null,
       eld_provider:     user.company_name || 'ELD',
-      current_status:   mapStatus(st.current_status),
+      current_status:   mapStatus(st.current_status ?? st.duty_status ?? st.status ?? st.hos_status ?? st.driver_status),
       // Preserve cached GPS if API returns no vehicle data for this driver
       speed:            rawSpeed ?? existing?.speed ?? null,
       latitude:         rawLat ? parseFloat(rawLat) : (existing?.latitude ?? null),
