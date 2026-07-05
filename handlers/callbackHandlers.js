@@ -242,19 +242,27 @@ const driverRefresh = async (ctx) => {
       const STATUS_LABELS = {
         'DS_D': 'DRIVING', 'DS_ON': 'ON DUTY', 'DS_OFF': 'OFF DUTY',
         'DS_SB': 'SLEEPER BERTH', 'DS_PC': 'PERSONAL CONVEYANCE', 'DS_YM': 'YARD MOVE',
+        'D': 'DRIVING', 'DR': 'DRIVING', 'ON': 'ON DUTY', 'OFF': 'OFF DUTY',
+        'SB': 'SLEEPER BERTH', 'PC': 'PERSONAL CONVEYANCE', 'YM': 'YARD MOVE',
+        'DRIVING': 'DRIVING', 'ON DUTY': 'ON DUTY', 'OFF DUTY': 'OFF DUTY',
+        'SLEEPER BERTH': 'SLEEPER BERTH', 'PERSONAL CONVEYANCE': 'PERSONAL CONVEYANCE', 'YARD MOVE': 'YARD MOVE',
       };
+      const rawCode = st.current_status ?? st.duty_status ?? st.status ?? st.hos_status ?? st.driver_status;
+      const mappedStatus = rawCode
+        ? (STATUS_LABELS[String(rawCode).toUpperCase()] || STATUS_LABELS[rawCode] || 'OFF DUTY')
+        : 'OFF DUTY';
       const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude ?? st.lat ?? st.latitude;
       const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude ?? st.lon ?? st.lng ?? st.longitude;
       const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
       const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
       const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
       await driver.update({
-        current_status:  STATUS_LABELS[st.current_status] || st.current_status || driver.current_status,
-        speed:           rawSpeed ?? driver.speed,
-        latitude:        rawLat  ? parseFloat(rawLat) : driver.latitude,
-        longitude:       rawLon  ? parseFloat(rawLon) : driver.longitude,
-        truck_number:    rawTruck || driver.truck_number,
-        location_string: rawLocation ?? driver.location_string,
+        current_status:  mappedStatus,
+        speed:           rawSpeed ?? null,
+        latitude:        rawLat ? parseFloat(rawLat) : null,
+        longitude:       rawLon ? parseFloat(rawLon) : null,
+        truck_number:    rawTruck || null,
+        location_string: rawLocation ?? null,
         drive_remaining: st.drive          ?? driver.drive_remaining,
         shift_remaining: st.shift          ?? driver.shift_remaining,
         break_remaining: st.break          ?? driver.break_remaining,
