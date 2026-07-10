@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections } = require('../services/eldService');
 const notifService = require('../services/notificationService');
 const menuTracker = require('../utils/menuTracker');
 const { sendMainMenu } = require('../utils/mainMenu');
@@ -235,57 +235,6 @@ const setapi = async (ctx) => {
   }
 };
 
-const drivers = async (ctx) => {
-  try {
-    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    if (!user) return ctx.reply('Please /start first.');
-
-    const driverList = await Driver.findAll({ where: { user_id: user.id } });
-    if (!driverList.length) {
-      return ctx.reply('No drivers found.\n\nConnect your ELD with:\n/setapi YOUR_COMPANY_KEY');
-    }
-
-    await ctx.reply(`👥 <b>Your Drivers (${driverList.length})</b>`, {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: driverList.map((d) => [
-          { text: `👤 ${d.driver_name}`, callback_data: `driver_details_${d.driver_id}` },
-        ]),
-      },
-    });
-  } catch (error) {
-    logger.error('Drivers error:', error);
-    await ctx.reply('❌ Error loading drivers.');
-  }
-};
-
-const help = async (ctx) => {
-  await ctx.reply(
-    `📖 <b>Owner Assistant Bot Help</b>\n\n` +
-    `/start - Open menu\n` +
-    `/drivers - View all drivers\n` +
-    `/setapi KEY - Connect your company ELD\n` +
-    `/orders - Device orders\n` +
-    `/help - Show help\n\n` +
-    `<b>How to get your Company API Key:</b>\n` +
-    `Log in to the ELD portal → Settings → API Key → Generate`,
-    { parse_mode: 'HTML' }
-  );
-};
-
-const orders = async (ctx) => {
-  await ctx.reply(
-    `📦 <b>Device Orders</b>\n\nPT30 ELD Device:\n• Price: $179\n• Overnight shipping: +$100`,
-    {
-      parse_mode: 'HTML',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🛒 Order PT30 Device', callback_data: 'order_devices_start' }],
-        ],
-      },
-    }
-  );
-};
 
 // ─── DOT Inspection Polling ───────────────────────────────────────────────────
 
@@ -370,31 +319,10 @@ async function checkNewInspections(bot) {
         if (!externalId) continue;
         await saveAndNotifyInspection(bot, user, insp, `dot-${externalId}`);
       }
-
-      // ── Fallback: scan driver log events for "DOT Inspection" notes ─────────
-      const events = await fetchDriverLogEvents(user.company_api_key, 2);
-      logger.info(`checkNewInspections: user ${user.id} got ${events.length} log events`);
-
-      for (const ev of events) {
-        const notes = String(
-          parseInspField(ev, 'notes', 'note', 'comment', 'annotation', 'description') || ''
-        ).toLowerCase();
-        if (!notes.includes('dot inspection') && !notes.includes('dot_inspection')) continue;
-
-        // Build a stable external_id from event sequence id or time+driver
-        const seqId = parseInspField(ev, 'id', 'seq_id', 'seqId', 'sequence_id', 'event_id', 'eventId');
-        const evTime = parseInspField(ev, 'event_time', 'eventTime', 'start_time', 'startTime', 'date', 'created_at');
-        const evDriver = parseInspField(ev, 'driver_id', 'driverId') || 'unknown';
-        const externalId = seqId
-          ? `event-${seqId}`
-          : `event-${evDriver}-${evTime ? new Date(evTime).getTime() : Date.now()}`;
-
-        await saveAndNotifyInspection(bot, user, ev, externalId);
-      }
     } catch (err) {
       logger.warn(`Inspection check failed for user ${user.id}:`, err.message);
     }
   }
 }
 
-module.exports = { start, drivers, help, setapi, orders, syncDrivers, checkNewInspections };
+module.exports = { start, setapi, syncDrivers, checkNewInspections };

@@ -230,17 +230,12 @@ const driverRefresh = async (ctx) => {
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
 
-    logger.info(`[GPS DEBUG] driverId=${driverId} st.vehicle_id=${st.vehicle_id}`);
-    logger.info(`[GPS DEBUG] vehicleRaw sample: ${JSON.stringify(vehicleRaw.slice(0, 3))}`);
-
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
       String(r.assigned_driver_id) === String(driverId) ||
       String(r.current_driver_id) === String(driverId) ||
       (st.vehicle_id && String(r.vehicle_id) === String(st.vehicle_id))
     ) || {};
-
-    logger.info(`[GPS DEBUG] matched vehicle: ${JSON.stringify(v)}`);
 
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {

@@ -76,10 +76,7 @@ bot.use(async (ctx, next) => {
 
 // ─── Main bot commands ────────────────────────────────────────────────────────
 bot.start(commandHandlers.start);
-bot.command('drivers', commandHandlers.drivers);
-bot.command('help', commandHandlers.help);
 bot.command('setapi', commandHandlers.setapi);
-bot.command('orders', commandHandlers.orders);
 
 // ─── Driver callbacks ─────────────────────────────────────────────────────────
 bot.action(/^driver_details_(.+)$/, callbackHandlers.driverDetails);
@@ -329,11 +326,11 @@ function startGpsPolling() {
             const rawLat = v.lat ?? v.latitude;
             const rawLon = v.lon ?? v.longitude;
             await driver.update({
-              speed:           v.speed ?? driver.speed,
-              latitude:        rawLat ? parseFloat(rawLat) : driver.latitude,
-              longitude:       rawLon ? parseFloat(rawLon) : driver.longitude,
-              truck_number:    v.number || driver.truck_number,
-              location_string: v.calc_location || driver.location_string,
+              speed:           v.speed ?? null,
+              latitude:        rawLat ? parseFloat(rawLat) : null,
+              longitude:       rawLon ? parseFloat(rawLon) : null,
+              truck_number:    v.number || null,
+              location_string: v.calc_location || null,
             });
           }
         } catch {}
