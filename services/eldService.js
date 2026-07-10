@@ -40,32 +40,20 @@ async function fetchDriverStatus(companyKey) {
 
 async function fetchVehicleStatus(companyKey) {
   const client = makeClient(companyKey);
-  const candidates = [
-    '/vehicle-status',
-    '/vehicles/status',
-    '/vehicles/live',
-    '/vehicles',
-    '/fleet/tracking',
-    '/fleet/vehicles',
-    '/latest-vehicle-status',
-  ];
-  let best = [];
-  for (const url of candidates) {
-    try {
-      const res = await client.get(url, { params: { limit: 1000 } });
-      const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
-      if (Array.isArray(raw) && raw.length > best.length) {
-        logger.info(`fetchVehicleStatus: ${url} returned ${raw.length} records`);
-        if (raw.length > 0) logger.info('[API DEBUG] vehicle-status first record fields:', JSON.stringify(raw[0]));
-        best = raw;
-        if (best.length > 5) break;
-      }
-    } catch (err) {
-      logger.info(`fetchVehicleStatus: ${url} failed — ${err.response?.status || err.message}`);
+  try {
+    const res = await client.get('/vehicles', { params: { limit: 1000 } });
+    const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
+    if (!Array.isArray(raw) || !raw.length) {
+      logger.warn('fetchVehicleStatus: /vehicles returned empty');
+      return [];
     }
+    logger.info('fetchVehicleStatus: /vehicles returned ' + raw.length + ' records');
+    logger.info('[API DEBUG] vehicle first record: ' + JSON.stringify(raw[0]));
+    return raw;
+  } catch (err) {
+    logger.warn('fetchVehicleStatus: /vehicles failed — ' + (err.response?.status || err.message));
+    return [];
   }
-  if (!best.length) logger.warn('fetchVehicleStatus: all endpoints returned empty');
-  return best;
 }
 
 async function fetchCompanyInfo(companyKey) {
