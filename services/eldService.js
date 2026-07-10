@@ -29,7 +29,7 @@ async function fetchDriverStatus(companyKey) {
     const res = await client.get('/latest-driver-status', { params: { limit: 1000 } });
     const data = res.data?.data;
     if (Array.isArray(data) && data.length > 0) {
-      logger.info('[API DEBUG] driver-status first record fields:', JSON.stringify(data[0]));
+      logger.info('[API DEBUG] driver-status first record: ' + JSON.stringify(data[0]));
     }
     return Array.isArray(data) ? data : [];
   } catch (err) {
@@ -49,7 +49,9 @@ async function fetchVehicleStatus(companyKey) {
     if (Array.isArray(raw) && raw.length > 0) {
       gpsRecords = raw;
       logger.info('fetchVehicleStatus: /latest-vehicle-status returned ' + raw.length + ' records');
-      logger.info('[API DEBUG] latest-vehicle-status first record: ' + JSON.stringify(raw[0]));
+      // Log first record with non-empty driver_id so we can see real data shape
+      const withDriver = raw.find(r => r.driver_id && r.driver_id !== '');
+      logger.info('[API DEBUG] latest-vehicle-status with driver: ' + JSON.stringify(withDriver || raw[0]));
     } else {
       logger.warn('fetchVehicleStatus: /latest-vehicle-status returned empty');
     }
