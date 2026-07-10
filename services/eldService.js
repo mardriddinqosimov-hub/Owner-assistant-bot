@@ -40,20 +40,44 @@ async function fetchDriverStatus(companyKey) {
 
 async function fetchVehicleStatus(companyKey) {
   const client = makeClient(companyKey);
+
+  // Step 1: GPS + driver linking from /latest-vehicle-status
+  let gpsRecords = [];
+  try {
+    const res = await client.get('/latest-vehicle-status', { params: { limit: 1000 } });
+    const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
+    if (Array.isArray(raw) && raw.length > 0) {
+      gpsRecords = raw;
+      logger.info('fetchVehicleStatus: /latest-vehicle-status returned ' + raw.length + ' records');
+      logger.info('[API DEBUG] latest-vehicle-status first record: ' + JSON.stringify(raw[0]));
+    } else {
+      logger.warn('fetchVehicleStatus: /latest-vehicle-status returned empty');
+    }
+  } catch (err) {
+    logger.warn('fetchVehicleStatus: /latest-vehicle-status failed — ' + (err.response?.status || err.message));
+  }
+
+  // Step 2: Unit numbers from /vehicles, keyed by vehicle_id
+  const unitNumberMap = {};
   try {
     const res = await client.get('/vehicles', { params: { limit: 1000 } });
     const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
-    if (!Array.isArray(raw) || !raw.length) {
-      logger.warn('fetchVehicleStatus: /vehicles returned empty');
-      return [];
+    if (Array.isArray(raw)) {
+      for (const v of raw) {
+        const vid = String(v.vehicle_id ?? v.id ?? '');
+        if (vid && v.number) unitNumberMap[vid] = v.number;
+      }
+      logger.info('fetchVehicleStatus: unit number map built — ' + JSON.stringify(unitNumberMap));
     }
-    logger.info('fetchVehicleStatus: /vehicles returned ' + raw.length + ' records');
-    logger.info('[API DEBUG] vehicle first record: ' + JSON.stringify(raw[0]));
-    return raw;
   } catch (err) {
     logger.warn('fetchVehicleStatus: /vehicles failed — ' + (err.response?.status || err.message));
-    return [];
   }
+
+  // Merge: attach unit number onto each GPS record
+  return gpsRecords.map(v => {
+    const vid = String(v.vehicle_id ?? v.id ?? '');
+    return vid && unitNumberMap[vid] ? { ...v, number: unitNumberMap[vid] } : v;
+  });
 }
 
 async function fetchCompanyInfo(companyKey) {
