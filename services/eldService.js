@@ -106,16 +106,32 @@ async function reverseGeocode(lat, lon) {
 
 async function fetchInspections(companyKey) {
   const client = makeClient(companyKey);
-  try {
-    const res = await client.get('/dot-inspections', { params: { limit: 200 } });
-    const raw = res.data;
-    logger.info('fetchInspections raw response:', JSON.stringify(raw).slice(0, 500));
-    const data = raw?.data ?? raw?.inspections ?? raw?.results ?? raw;
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    logger.warn('fetchInspections failed:', err.response?.status, err.response?.data?.description || err.message);
-    return [];
+  const candidates = [
+    '/dot-inspections',
+    '/inspections',
+    '/roadside-inspections',
+    '/dot-events',
+    '/log-transfers',
+    '/fmcsa-transfers',
+    '/driver-inspections',
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await client.get(url, { params: { limit: 200 } });
+      const raw = res.data;
+      const data = raw?.data ?? raw?.inspections ?? raw?.results ?? raw?.transfers ?? raw;
+      if (Array.isArray(data) && data.length > 0) {
+        logger.info(`fetchInspections: ${url} returned ${data.length} records`);
+        logger.info('fetchInspections first record:', JSON.stringify(data[0]).slice(0, 500));
+        return data;
+      }
+      logger.info(`fetchInspections: ${url} returned 0 records`);
+    } catch (err) {
+      logger.info(`fetchInspections: ${url} failed — ${err.response?.status || err.message}`);
+    }
   }
+  logger.warn('fetchInspections: all endpoints returned empty');
+  return [];
 }
 
 // Fetch recent driver log events to detect DOT inspections from event notes
