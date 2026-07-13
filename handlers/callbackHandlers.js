@@ -7,7 +7,7 @@ const WithdrawalRequest = require('../models/WithdrawalRequest');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
-const { fetchDriverStatus, fetchVehicleStatus, formatSeconds } = require('../services/eldService');
+const { fetchDriverStatus, fetchVehicleStatus, fetchDrivers, formatSeconds } = require('../services/eldService');
 
 // ─── Driver Status Groups ────────────────────────────────────────────────────
 
@@ -223,15 +223,19 @@ const driverRefresh = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user || !user.company_api_key) return ctx.reply('Please /start first.');
 
-    const [statusRaw, vehicleRaw] = await Promise.all([
+    const [statusRaw, vehicleRaw, driversRaw] = await Promise.all([
       fetchDriverStatus(user.company_api_key),
       fetchVehicleStatus(user.company_api_key),
+      fetchDrivers(user.company_api_key),
     ]);
 
     logger.info('[REFRESH DEBUG] driverId=' + driverId + ' | vehicle driver_ids: ' + vehicleRaw.map(r => r.driver_id).join(', '));
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
     logger.info('[REFRESH DEBUG] st record: ' + JSON.stringify(st));
+
+    const driverRecord = driversRaw.find(d => String(d.driver_id ?? d.id) === String(driverId)) || {};
+    logger.info('[REFRESH DEBUG] /drivers record: ' + JSON.stringify(driverRecord));
 
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
