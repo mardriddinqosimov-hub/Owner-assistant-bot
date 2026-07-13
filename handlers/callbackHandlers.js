@@ -7,7 +7,7 @@ const WithdrawalRequest = require('../models/WithdrawalRequest');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
-const { fetchDriverStatus, fetchVehicleStatus, fetchDrivers, formatSeconds } = require('../services/eldService');
+const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, formatSeconds } = require('../services/eldService');
 
 // ─── Driver Status Groups ────────────────────────────────────────────────────
 
@@ -223,24 +223,14 @@ const driverRefresh = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user || !user.company_api_key) return ctx.reply('Please /start first.');
 
-    const [statusRaw, vehicleRaw, driversRaw] = await Promise.all([
+    const [statusRaw, vehicleRaw, hosListRaw] = await Promise.all([
       fetchDriverStatus(user.company_api_key),
       fetchVehicleStatus(user.company_api_key),
-      fetchDrivers(user.company_api_key),
+      fetchHosList(user.company_api_key),
     ]);
 
-    logger.info('[REFRESH DEBUG] driverId=' + driverId + ' | vehicle driver_ids: ' + vehicleRaw.map(r => r.driver_id).join(', '));
-
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
-    logger.info('[REFRESH DEBUG] st record: ' + JSON.stringify(st));
-
-    const driverRecord = driversRaw.find(d => String(d.driver_id ?? d.id) === String(driverId)) || {};
-    logger.info('[REFRESH DEBUG] /drivers record: ' + JSON.stringify(driverRecord));
-
-    // Try endpoints that might link driver to vehicle
-    const { fetchDriverGpsDiag } = require('../services/eldService');
-    const diagResult = await fetchDriverGpsDiag(user.company_api_key, driverId);
-    logger.info('[GPS DEBUG] diag result: ' + JSON.stringify(diagResult));
+    const hosEntry = hosListRaw.find(d => String(d.driver_id) === String(driverId)) || {};
 
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
@@ -263,11 +253,13 @@ const driverRefresh = async (ctx) => {
       const mappedStatus = rawCode
         ? (STATUS_LABELS[String(rawCode).toUpperCase()] || STATUS_LABELS[rawCode] || 'OFF DUTY')
         : 'OFF DUTY';
-      const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude ?? st.lat ?? st.latitude;
-      const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude ?? st.lon ?? st.lng ?? st.longitude;
+      const hosLat = hosEntry.lat && Number(hosEntry.lat) !== 0 ? hosEntry.lat : null;
+      const hosLon = hosEntry.lon && Number(hosEntry.lon) !== 0 ? hosEntry.lon : null;
+      const rawLat = hosLat ?? v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude ?? st.lat ?? st.latitude;
+      const rawLon = hosLon ?? v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude ?? st.lon ?? st.lng ?? st.longitude;
       const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
-      const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
-      const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
+      const rawTruck = hosEntry.vehicle_number ?? v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
+      const rawLocation = hosEntry.calculated_location ?? v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
       await driver.update({
         current_status:  mappedStatus,
         speed:           rawSpeed ?? null,

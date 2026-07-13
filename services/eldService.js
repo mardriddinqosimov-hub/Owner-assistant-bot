@@ -2,6 +2,7 @@ const axios = require('axios');
 const logger = require('../utils/logger');
 
 const PARTNER_BASE = 'https://api.drivehos.app/v2';
+const API_V1_BASE = 'https://api.drivehos.app/api/v1';
 const PROVIDER_KEY = process.env.PROVIDER_KEY;
 
 function makeClient(companyKey) {
@@ -28,9 +29,6 @@ async function fetchDriverStatus(companyKey) {
   try {
     const res = await client.get('/latest-driver-status', { params: { limit: 1000 } });
     const data = res.data?.data;
-    if (Array.isArray(data) && data.length > 0) {
-      logger.info('[API DEBUG] driver-status first record: ' + JSON.stringify(data[0]));
-    }
     return Array.isArray(data) ? data : [];
   } catch (err) {
     logger.warn('fetchDriverStatus failed:', err.response?.data?.description || err.message);
@@ -41,27 +39,15 @@ async function fetchDriverStatus(companyKey) {
 async function fetchVehicleStatus(companyKey) {
   const client = makeClient(companyKey);
 
-  // Step 1: GPS + driver linking from /latest-vehicle-status
   let gpsRecords = [];
   try {
     const res = await client.get('/latest-vehicle-status', { params: { limit: 1000 } });
     const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
-    if (Array.isArray(raw) && raw.length > 0) {
-      gpsRecords = raw;
-      logger.info('fetchVehicleStatus: /latest-vehicle-status returned ' + raw.length + ' records');
-      // Log first record with non-empty driver_id so we can see real data shape
-      const withDriver = raw.find(r => r.driver_id && r.driver_id !== '');
-      logger.info('[API DEBUG] latest-vehicle-status with driver: ' + JSON.stringify(withDriver || raw[0]));
-      const withoutDriver = raw.find(r => !r.driver_id || r.driver_id === '');
-      logger.info('[API DEBUG] latest-vehicle-status WITHOUT driver: ' + JSON.stringify(withoutDriver));
-    } else {
-      logger.warn('fetchVehicleStatus: /latest-vehicle-status returned empty');
-    }
+    if (Array.isArray(raw) && raw.length > 0) gpsRecords = raw;
   } catch (err) {
     logger.warn('fetchVehicleStatus: /latest-vehicle-status failed — ' + (err.response?.status || err.message));
   }
 
-  // Step 2: Unit numbers from /vehicles, keyed by vehicle_id
   const unitNumberMap = {};
   try {
     const res = await client.get('/vehicles', { params: { limit: 1000 } });
@@ -71,17 +57,31 @@ async function fetchVehicleStatus(companyKey) {
         const vid = String(v.vehicle_id ?? v.id ?? '');
         if (vid && v.number) unitNumberMap[vid] = v.number;
       }
-      logger.info('fetchVehicleStatus: unit number map built — ' + JSON.stringify(unitNumberMap));
     }
   } catch (err) {
     logger.warn('fetchVehicleStatus: /vehicles failed — ' + (err.response?.status || err.message));
   }
 
-  // Merge: attach unit number onto each GPS record
   return gpsRecords.map(v => {
     const vid = String(v.vehicle_id ?? v.id ?? '');
     return vid && unitNumberMap[vid] ? { ...v, number: unitNumberMap[vid] } : v;
   });
+}
+
+// Fetches the HOS list from the portal API — includes lat, lon, calculated_location,
+// vehicle_number, current_status, and HOS values in milliseconds.
+async function fetchHosList(companyKey) {
+  try {
+    const headers = { 'X-API-Provider-Key': PROVIDER_KEY };
+    if (companyKey) headers['X-API-Company-Key'] = companyKey;
+    const client = axios.create({ baseURL: API_V1_BASE, headers, timeout: 15000 });
+    const res = await client.get('/hos/list', { params: { limit: 1000, driver_status: 'active' } });
+    const drivers = res.data?.data?.drivers ?? [];
+    return Array.isArray(drivers) ? drivers : [];
+  } catch (err) {
+    logger.warn('fetchHosList failed: ' + (err.response?.status || err.message));
+    return [];
+  }
 }
 
 async function fetchCompanyInfo(companyKey) {
@@ -138,10 +138,8 @@ async function fetchInspections(companyKey) {
       const data = raw?.data ?? raw?.inspections ?? raw?.results ?? raw?.transfers ?? raw;
       if (Array.isArray(data) && data.length > 0) {
         logger.info(`fetchInspections: ${url} returned ${data.length} records`);
-        logger.info('fetchInspections first record:', JSON.stringify(data[0]).slice(0, 500));
         return data;
       }
-      logger.info(`fetchInspections: ${url} returned 0 records`);
     } catch (err) {
       logger.info(`fetchInspections: ${url} failed — ${err.response?.status || err.message}`);
     }
@@ -150,14 +148,12 @@ async function fetchInspections(companyKey) {
   return [];
 }
 
-// Fetch recent driver log events to detect DOT inspections from event notes
 async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   const client = makeClient(companyKey);
   const from = new Date();
   from.setDate(from.getDate() - daysBack);
   const fromStr = from.toISOString().split('T')[0];
   try {
-    // Try common DriveHOS event endpoint variants
     let data = [];
     for (const endpoint of ['/driver-logs', '/eld-events', '/driver-events', '/log-events']) {
       try {
@@ -165,7 +161,6 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
         const raw = res.data?.data ?? res.data?.results ?? res.data;
         if (Array.isArray(raw) && raw.length > 0) {
           data = raw;
-          logger.info(`fetchDriverLogEvents: found data at ${endpoint} (${raw.length} events)`);
           break;
         }
       } catch {}
@@ -177,26 +172,4 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   }
 }
 
-async function fetchDriverGpsDiag(companyKey, driverId) {
-  const client = makeClient(companyKey);
-  const results = {};
-
-  // Try log events filtered by driver_id — ELD status-change events include GPS coords
-  const today = new Date().toISOString().split('T')[0];
-  for (const endpoint of ['/driver-logs', '/eld-events', '/driver-events', '/log-events']) {
-    try {
-      const r = await client.get(endpoint, { params: { driver_id: driverId, limit: 20, from_date: today } });
-      const d = r.data?.data ?? r.data?.results ?? r.data;
-      if (Array.isArray(d) && d.length > 0) {
-        results.logEventsEndpoint = endpoint;
-        results.logEventsFirst = d[0];
-        results.logEventsLast = d[d.length - 1];
-        break;
-      }
-      results[endpoint] = 'empty';
-    } catch (e) { results[endpoint] = 'failed: ' + (e.response?.status || e.message); }
-  }
-  return results;
-}
-
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, fetchDriverGpsDiag, formatSeconds, reverseGeocode };
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, formatSeconds, reverseGeocode };
