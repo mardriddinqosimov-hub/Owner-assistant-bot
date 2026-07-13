@@ -231,6 +231,7 @@ const driverRefresh = async (ctx) => {
     logger.info('[REFRESH DEBUG] driverId=' + driverId + ' | vehicle driver_ids: ' + vehicleRaw.map(r => r.driver_id).join(', '));
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
+    logger.info('[REFRESH DEBUG] st record: ' + JSON.stringify(st));
 
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
