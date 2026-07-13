@@ -237,6 +237,11 @@ const driverRefresh = async (ctx) => {
     const driverRecord = driversRaw.find(d => String(d.driver_id ?? d.id) === String(driverId)) || {};
     logger.info('[REFRESH DEBUG] /drivers record: ' + JSON.stringify(driverRecord));
 
+    // Try endpoints that might link driver to vehicle
+    const { fetchDriverGpsDiag } = require('../services/eldService');
+    const diagResult = await fetchDriverGpsDiag(user.company_api_key, driverId);
+    logger.info('[GPS DEBUG] diag result: ' + JSON.stringify(diagResult));
+
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
       String(r.assigned_driver_id) === String(driverId) ||

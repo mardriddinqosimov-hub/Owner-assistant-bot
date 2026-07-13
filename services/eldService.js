@@ -177,4 +177,19 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   }
 }
 
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, formatSeconds, reverseGeocode };
+async function fetchDriverGpsDiag(companyKey, driverId) {
+  const client = makeClient(companyKey);
+  const results = {};
+  try {
+    const r = await client.get('/latest-vehicle-status', { params: { driver_id: driverId, limit: 10 } });
+    const d = r.data?.data ?? r.data?.vehicles ?? r.data;
+    results.vehicleFilteredByDriver = Array.isArray(d) ? d[0] : d;
+  } catch (e) { results.vehicleFilteredByDriver = 'failed: ' + e.message; }
+  try {
+    const r = await client.get('/latest-driver-status/' + driverId);
+    results.driverStatusById = r.data?.data ?? r.data;
+  } catch (e) { results.driverStatusById = 'failed: ' + (e.response?.status || e.message); }
+  return results;
+}
+
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, fetchDriverGpsDiag, formatSeconds, reverseGeocode };
