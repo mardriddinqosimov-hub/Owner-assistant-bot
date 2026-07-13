@@ -52,6 +52,8 @@ async function fetchVehicleStatus(companyKey) {
       // Log first record with non-empty driver_id so we can see real data shape
       const withDriver = raw.find(r => r.driver_id && r.driver_id !== '');
       logger.info('[API DEBUG] latest-vehicle-status with driver: ' + JSON.stringify(withDriver || raw[0]));
+      const withoutDriver = raw.find(r => !r.driver_id || r.driver_id === '');
+      logger.info('[API DEBUG] latest-vehicle-status WITHOUT driver: ' + JSON.stringify(withoutDriver));
     } else {
       logger.warn('fetchVehicleStatus: /latest-vehicle-status returned empty');
     }
