@@ -180,15 +180,22 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
 async function fetchDriverGpsDiag(companyKey, driverId) {
   const client = makeClient(companyKey);
   const results = {};
-  try {
-    const r = await client.get('/latest-vehicle-status', { params: { driver_id: driverId, limit: 10 } });
-    const d = r.data?.data ?? r.data?.vehicles ?? r.data;
-    results.vehicleFilteredByDriver = Array.isArray(d) ? d[0] : d;
-  } catch (e) { results.vehicleFilteredByDriver = 'failed: ' + e.message; }
-  try {
-    const r = await client.get('/latest-driver-status/' + driverId);
-    results.driverStatusById = r.data?.data ?? r.data;
-  } catch (e) { results.driverStatusById = 'failed: ' + (e.response?.status || e.message); }
+
+  // Try log events filtered by driver_id — ELD status-change events include GPS coords
+  const today = new Date().toISOString().split('T')[0];
+  for (const endpoint of ['/driver-logs', '/eld-events', '/driver-events', '/log-events']) {
+    try {
+      const r = await client.get(endpoint, { params: { driver_id: driverId, limit: 20, from_date: today } });
+      const d = r.data?.data ?? r.data?.results ?? r.data;
+      if (Array.isArray(d) && d.length > 0) {
+        results.logEventsEndpoint = endpoint;
+        results.logEventsFirst = d[0];
+        results.logEventsLast = d[d.length - 1];
+        break;
+      }
+      results[endpoint] = 'empty';
+    } catch (e) { results[endpoint] = 'failed: ' + (e.response?.status || e.message); }
+  }
   return results;
 }
 
