@@ -31,7 +31,7 @@ const CABLE_NAMES = {
 
 const MAIN_KB = {
   inline_keyboard: [
-    [{ text: '👥 Users',       callback_data: 'ha_users_0' }, { text: '📊 Stats',  callback_data: 'ha_stats' }],
+    [{ text: '👥 Users',       callback_data: 'ha_users' }, { text: '📊 Stats',  callback_data: 'ha_stats' }],
     [{ text: '🏷 Blocks',      callback_data: 'ha_blocks' }],
     [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
     [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
@@ -176,10 +176,52 @@ const haStats = async (ctx) => {
 
 // ─── Users List ───────────────────────────────────────────────────────────────
 
-const haUsers = async (ctx, page = 0) => {
+const haUsersMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const users = await User.findAll({ order: [['created_at', 'DESC']] });
+    const [owners, safety, unknown, blocked] = await Promise.all([
+      User.count({ where: { role: 'owner',  blocked: { [Op.not]: true }, deleted_at: null } }),
+      User.count({ where: { role: 'safety', blocked: { [Op.not]: true }, deleted_at: null } }),
+      User.count({ where: { role: { [Op.notIn]: ['owner', 'safety'] }, blocked: { [Op.not]: true }, deleted_at: null } }),
+      User.count({ where: { blocked: true } }),
+    ]);
+    await ctx.editMessageText(
+      `👥 <b>Users</b>\n\nChoose a group to view:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `👤 Owners (${owners})`,   callback_data: 'ha_ulist_owner_0' }],
+            [{ text: `🛡 Safety (${safety})`,    callback_data: 'ha_ulist_safety_0' }],
+            [{ text: `❓ Unknown (${unknown})`,  callback_data: 'ha_ulist_unknown_0' }],
+            [{ text: `🚫 Blocked (${blocked})`,  callback_data: 'ha_ulist_blocked_0' }],
+            [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('haUsersMenu error:', err);
+  }
+};
+
+const haUsers = async (ctx, filter = 'owner', page = 0) => {
+  try {
+    await ctx.answerCbQuery();
+
+    const filterWhere =
+      filter === 'owner'   ? { role: 'owner',  blocked: { [Op.not]: true }, deleted_at: null } :
+      filter === 'safety'  ? { role: 'safety', blocked: { [Op.not]: true }, deleted_at: null } :
+      filter === 'blocked' ? { blocked: true } :
+      /* unknown */          { role: { [Op.notIn]: ['owner', 'safety'] }, blocked: { [Op.not]: true }, deleted_at: null };
+
+    const filterLabel =
+      filter === 'owner'   ? '👤 Owners' :
+      filter === 'safety'  ? '🛡 Safety' :
+      filter === 'blocked' ? '🚫 Blocked' :
+      '❓ Unknown';
+
+    const users = await User.findAll({ where: filterWhere, order: [['created_at', 'DESC']] });
     const total  = users.length;
     const pages  = Math.ceil(total / USERS_PER_PAGE) || 1;
     const slice  = users.slice(page * USERS_PER_PAGE, (page + 1) * USERS_PER_PAGE);
@@ -206,14 +248,13 @@ const haUsers = async (ctx, page = 0) => {
     }]);
 
     const nav = [];
-    if (page > 0)        nav.push({ text: '◀️ Prev', callback_data: `ha_users_${page - 1}` });
-    if (page < pages - 1) nav.push({ text: 'Next ▶️', callback_data: `ha_users_${page + 1}` });
+    if (page > 0)          nav.push({ text: '◀️ Prev', callback_data: `ha_ulist_${filter}_${page - 1}` });
+    if (page < pages - 1)  nav.push({ text: 'Next ▶️', callback_data: `ha_ulist_${filter}_${page + 1}` });
     if (nav.length) buttons.push(nav);
-    buttons.push([{ text: '◀️ Main Menu', callback_data: 'ha_main' }]);
+    buttons.push([{ text: '◀️ Back to Users', callback_data: 'ha_users' }]);
 
     await ctx.editMessageText(
-      `👥 <b>Users</b>  (${total} total, page ${page + 1}/${pages})\n\n` +
-      `${roleIcon('owner')} Owner  ${roleIcon('safety')} Safety  ❓ Unknown  🚫 Blocked`,
+      `${filterLabel}  <b>(${total} total, page ${page + 1}/${pages})</b>`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
     );
   } catch (err) {
@@ -262,7 +303,7 @@ const haUserDetail = async (ctx) => {
       rows.push([{ text: '🚫 Block User', callback_data: `ha_block_${userId}` }]);
     }
     rows.push([{ text: '🗑 Delete User', callback_data: `ha_delete_${userId}` }]);
-    rows.push([{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]);
+    rows.push([{ text: '◀️ Back to Users', callback_data: 'ha_users' }]);
 
     await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: { inline_keyboard: rows } });
   } catch (err) {
@@ -357,7 +398,7 @@ const haDeleteUser = async (ctx) => {
     }
     await ctx.editMessageText(
       `✅ <b>${name}</b> has been removed from the bot.`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]] } }
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Users', callback_data: 'ha_users' }]] } }
     );
   } catch (err) {
     logger.error('haDeleteUser error:', err);
@@ -1237,7 +1278,7 @@ async function notifyNewOrder(bot, adminId, order) {
 module.exports = {
   haStart, haMain,
   haStats,
-  haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
+  haUsersMenu, haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haReport, haReportAudience, haGenerateReport,
