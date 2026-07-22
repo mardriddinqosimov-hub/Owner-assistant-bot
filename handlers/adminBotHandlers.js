@@ -838,11 +838,10 @@ const haGenerateReport = async (ctx) => {
 
     // ── New Users table ───────────────────────────────────────────────────────
     const ROW_H = 18;
-    // col widths must sum to BODY (495)
-    const NW = [28, 120, 162, 70, 80, 35]; // #, Name, Company, Role, Platform, Joined (date fits 35 if short format)
-    // Actually date like "07/22/2026" is 10 chars at 8.5pt ~ 55px, so let's use:
-    const NW2 = [28, 120, 152, 70, 80, 45]; // sum = 495
-    const NX  = NW2.reduce((acc, w, i) => { acc.push((acc[i - 1] || L) + (i > 0 ? NW2[i - 1] : 0)); return acc; }, [L]);
+    // col widths: #, Name, Company, Role, Platform, Joined — must sum to BODY (495)
+    const NW2 = [20, 88, 195, 50, 82, 60]; // sum = 495
+    const NX = [];
+    for (let i = 0; i < NW2.length; i++) NX.push(i === 0 ? L : NX[i - 1] + NW2[i - 1]);
 
     y = pdfSection(doc, `New Users Joined  (${joined.length})`, y);
     if (joined.length === 0) {
@@ -858,8 +857,9 @@ const haGenerateReport = async (ctx) => {
     y += 14;
 
     // ── Deleted Users table ───────────────────────────────────────────────────
-    const DW = [28, 150, 192, 80, 45]; // sum = 495
-    const DX  = DW.reduce((acc, w, i) => { acc.push((acc[i - 1] || L) + (i > 0 ? DW[i - 1] : 0)); return acc; }, [L]);
+    const DW = [20, 105, 215, 95, 60]; // #, Name, Company, Role, Deleted On — sum = 495
+    const DX = [];
+    for (let i = 0; i < DW.length; i++) DX.push(i === 0 ? L : DX[i - 1] + DW[i - 1]);
 
     y = pdfSection(doc, `Deleted by Admin  (${deleted.length})`, y);
     if (deleted.length === 0) {
