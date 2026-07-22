@@ -1,6 +1,7 @@
 const { Op } = require('sequelize');
 const Order = require('../models/Order');
 const User  = require('../models/User');
+const Driver = require('../models/Driver');
 const logger = require('../utils/logger');
 const { getMainBot } = require('../services/notificationService');
 const PDFDocument = require('pdfkit');
@@ -344,7 +345,16 @@ const haDeleteUser = async (ctx) => {
     const userId = parseInt(ctx.match[1], 10);
     const u = await User.findByPk(userId);
     const name = u ? userName(u) : `User #${userId}`;
-    if (u) await u.update({ deleted_at: new Date(), blocked: true });
+    if (u) {
+      await Driver.destroy({ where: { user_id: u.id } });
+      await u.update({
+        deleted_at:      new Date(),
+        company_api_key: null,
+        company_name:    null,
+        platform:        null,
+        blocked:         false,
+      });
+    }
     await ctx.editMessageText(
       `✅ <b>${name}</b> has been removed from the bot.`,
       { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back to Users', callback_data: 'ha_users_0' }]] } }

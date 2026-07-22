@@ -137,6 +137,10 @@ const start = async (ctx) => {
     if (!user) {
       user = await User.create({ telegram_id: telegramId, role: 'owner', ...tgInfo });
       notifService.notifyHeadAdminNewUser(user).catch(() => {});
+    } else if (user.deleted_at) {
+      // Previously deleted — treat as fresh signup (company already cleared on delete)
+      await user.update({ deleted_at: null, last_active: new Date(), ...tgInfo });
+      notifService.notifyHeadAdminNewUser(user).catch(() => {});
     } else {
       await user.update({ last_active: new Date(), ...tgInfo });
     }
