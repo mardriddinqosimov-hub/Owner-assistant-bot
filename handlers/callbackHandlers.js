@@ -1172,8 +1172,11 @@ const selectPlatform = async (ctx) => {
       `✅ Connected${companyName ? ` to <b>${companyName}</b>` : ''}!\n\n` +
       `Platform: <b>${platform === 'factor' ? 'Factor ELD' : 'Leader ELD'}</b>\n` +
       `Zelle payments will go to: <code>${zelleName}</code>\n\n` +
-      `Synced <b>${count}</b> driver${count !== 1 ? 's' : ''}. Use /start to open the menu.`,
-      { parse_mode: 'HTML' }
+      `Synced <b>${count}</b> driver${count !== 1 ? 's' : ''}.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
+      }
     );
   } catch (err) {
     logger.error('selectPlatform error:', err);

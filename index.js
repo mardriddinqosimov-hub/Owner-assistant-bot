@@ -76,6 +76,7 @@ bot.use(async (ctx, next) => {
 
 // ─── Main bot commands ────────────────────────────────────────────────────────
 bot.start(commandHandlers.start);
+bot.action('go_main_menu', ctx => { ctx.answerCbQuery(); return commandHandlers.start(ctx); });
 bot.command('setapi', commandHandlers.setapi);
 
 // ─── Driver callbacks ─────────────────────────────────────────────────────────

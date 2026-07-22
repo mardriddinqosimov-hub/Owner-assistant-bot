@@ -203,7 +203,9 @@ const setapi = async (ctx) => {
       logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
       await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
       const count = await syncDrivers(user, args, driversRaw);
-      await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.\n\nUse /start to open the menu.`);
+      await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.`, {
+        reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
+      });
     } else {
       // No platform prefix — ask user to pick
       const { pendingApiSessions } = require('./callbackHandlers');
