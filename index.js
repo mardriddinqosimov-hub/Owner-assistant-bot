@@ -144,6 +144,7 @@ bot.action(/^dot_detail_(\d+)$/, callbackHandlers.dotDetail);
 bot.action('main_menu', callbackHandlers.mainMenu);
 bot.action('change_team', callbackHandlers.changeTeam);
 bot.action('help_menu', callbackHandlers.helpMenu);
+bot.action('send_manual', callbackHandlers.sendManual);
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 bot.on('text', messageHandlers.handleText);
@@ -240,8 +241,9 @@ function setupAdminBot() {
   adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
   adminBot.action(/^ha_delete_yes_(\d+)$/,     adminBotHandlers.haDeleteUser);
   adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
-  adminBot.action('ha_report',                               adminBotHandlers.haReport);
-  adminBot.action(/^ha_report_(week|month|all)$/,            adminBotHandlers.haGenerateReport);
+  adminBot.action('ha_report',                                        adminBotHandlers.haReport);
+  adminBot.action(/^ha_rperiod_(week|month|all)$/,                    adminBotHandlers.haReportAudience);
+  adminBot.action(/^ha_rgen_(week|month|all)_(all|owners|ownersafe)$/,adminBotHandlers.haGenerateReport);
 
   // Admin users management
   adminBot.action('ha_admins',                               adminBotHandlers.haAdmins);

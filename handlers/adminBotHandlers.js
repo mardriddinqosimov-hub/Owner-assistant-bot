@@ -593,18 +593,58 @@ const haHandleText = async (ctx) => {
 
 // ─── Report ───────────────────────────────────────────────────────────────────
 
+// PDFKit only supports Latin-1 in built-in fonts — fall back to @username or TG ID for non-ASCII names
+function safePdfName(u) {
+  const full = [u.first_name, u.last_name].filter(Boolean).join(' ');
+  if (full && !/[^\x00-\x7F]/.test(full)) return full;
+  if (u.username) return `@${u.username}`;
+  return `TG:${u.telegram_id}`;
+}
+
+function roleLabel(role) {
+  const map = {
+    owner: 'Owner',
+    safety: 'Safety',
+    accounting_admin: 'Acctg Admin',
+    management_admin: 'Mgmt Admin',
+  };
+  return map[role] || role || '—';
+}
+
+function platformLabel(p) {
+  if (!p) return '—';
+  if (p === 'leader') return 'Leader ELD';
+  if (p === 'factor') return 'Factor ELD';
+  return p;
+}
+
+function pdfSection(doc, title) {
+  doc.fontSize(12).font('Helvetica-Bold').fillColor('#1a1a2e').text(title.toUpperCase());
+  doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).strokeColor('#3a86ff').lineWidth(1.5).stroke();
+  doc.moveDown(0.5).font('Helvetica').fontSize(9.5).fillColor('#000').lineWidth(1);
+}
+
+function pdfRow(doc, cols, widths, x0 = 50) {
+  let x = x0;
+  cols.forEach((text, i) => {
+    doc.text(String(text || '—'), x, doc.y, { width: widths[i] - 4, lineBreak: false, ellipsis: true });
+    x += widths[i];
+  });
+  doc.moveDown(0.6);
+}
+
 const haReport = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      `📄 <b>User Report</b>\n\nSelect report period:`,
+      `📄 <b>Report</b>\n\nStep 1 — Select period:`,
       {
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
-            [{ text: '📅 Weekly',   callback_data: 'ha_report_week' }],
-            [{ text: '🗓 Monthly',  callback_data: 'ha_report_month' }],
-            [{ text: '📆 All Time', callback_data: 'ha_report_all' }],
+            [{ text: '📅 Weekly (last 7 days)',   callback_data: 'ha_rperiod_week' }],
+            [{ text: '🗓 Monthly (last 30 days)',  callback_data: 'ha_rperiod_month' }],
+            [{ text: '📆 All Time',               callback_data: 'ha_rperiod_all' }],
             [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
           ],
         },
@@ -615,108 +655,181 @@ const haReport = async (ctx) => {
   }
 };
 
+const haReportAudience = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const period = ctx.match[1];
+    const periodText = period === 'week' ? 'Weekly' : period === 'month' ? 'Monthly' : 'All-Time';
+    await ctx.editMessageText(
+      `📄 <b>Report — ${periodText}</b>\n\nStep 2 — Select who to include:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '👥 All Users',              callback_data: `ha_rgen_${period}_all` }],
+            [{ text: '👤 Owners Only',            callback_data: `ha_rgen_${period}_owners` }],
+            [{ text: '👤👷 Owners + Safety',      callback_data: `ha_rgen_${period}_ownersafe` }],
+            [{ text: '◀️ Back', callback_data: 'ha_report' }],
+          ],
+        },
+      }
+    );
+  } catch (err) {
+    logger.error('haReportAudience error:', err);
+  }
+};
+
 const haGenerateReport = async (ctx) => {
   try {
     await ctx.answerCbQuery('Generating PDF…');
-    const period = ctx.match[1]; // week | month | all
+    const period   = ctx.match[1]; // week | month | all
+    const audience = ctx.match[2]; // all | owners | ownersafe
 
     const now = new Date();
     let since = null;
     let periodLabel = '';
     if (period === 'week') {
       since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      periodLabel = 'Weekly Report (last 7 days)';
+      periodLabel = 'Weekly Report — Last 7 Days';
     } else if (period === 'month') {
       since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      periodLabel = 'Monthly Report (last 30 days)';
+      periodLabel = 'Monthly Report — Last 30 Days';
     } else {
       periodLabel = 'All-Time Report';
     }
 
-    const dateWhere = since ? { [Op.gte]: since } : { [Op.not]: null };
+    const audienceLabel = audience === 'owners' ? 'Owners Only'
+      : audience === 'ownersafe' ? 'Owners & Safety'
+      : 'All Users';
 
-    const [joined, deleted, totalActive, totalBlocked] = await Promise.all([
+    const dateWhere  = since ? { [Op.gte]: since } : { [Op.not]: null };
+
+    // Role filter for "joined" query
+    const roleFilter = audience === 'owners'
+      ? { role: 'owner' }
+      : audience === 'ownersafe'
+        ? { role: { [Op.in]: ['owner', 'safety'] } }
+        : {};
+
+    const [joined, deleted, totalActive, totalBlocked, totalOwners, totalSafety] = await Promise.all([
       User.findAll({
-        where: { created_at: dateWhere, deleted_at: null },
+        where: { created_at: dateWhere, deleted_at: null, ...roleFilter },
         order: [['created_at', 'ASC']],
       }),
       User.findAll({
-        where: { deleted_at: dateWhere },
+        where: { deleted_at: dateWhere, ...roleFilter },
         order: [['deleted_at', 'ASC']],
       }),
-      User.count({ where: { deleted_at: null, blocked: { [Op.not]: true } } }),
+      User.count({ where: { deleted_at: null, blocked: { [Op.not]: true }, ...roleFilter } }),
       User.count({ where: { deleted_at: null, blocked: true } }),
+      User.count({ where: { deleted_at: null, role: 'owner' } }),
+      User.count({ where: { deleted_at: null, role: 'safety' } }),
     ]);
 
-    // Build PDF
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    // ── Build PDF ──────────────────────────────────────────────────────────────
+    const doc    = new PDFDocument({ margin: 50, size: 'A4' });
     const stream = new PassThrough();
     const chunks = [];
-
     doc.pipe(stream);
-    stream.on('data', chunk => chunks.push(chunk));
+    stream.on('data', c => chunks.push(c));
 
-    const generatedAt = now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
+    const generatedAt = now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Chicago' });
 
     // Header
-    doc.fontSize(22).font('Helvetica-Bold').text('AO Head Admin', { align: 'center' });
-    doc.fontSize(16).font('Helvetica').text(periodLabel, { align: 'center' });
-    doc.fontSize(10).fillColor('#888').text(`Generated: ${generatedAt}`, { align: 'center' });
-    doc.moveDown(1.5).fillColor('#000');
+    doc.rect(50, 40, 495, 70).fill('#1a1a2e');
+    doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold')
+       .text('OWNER ASSISTANT BOT', 50, 55, { align: 'center', width: 495 });
+    doc.fontSize(11).font('Helvetica')
+       .text(periodLabel, 50, 78, { align: 'center', width: 495 });
+    doc.fillColor('#000').moveDown(2.5);
 
-    // Summary box
-    doc.fontSize(13).font('Helvetica-Bold').text('Summary');
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
-    doc.moveDown(0.3).font('Helvetica').fontSize(11);
-    doc.text(`New users joined:       ${joined.length}`);
-    doc.text(`Users deleted by admin: ${deleted.length}`);
-    doc.text(`Total active users:     ${totalActive}`);
-    doc.text(`Total blocked users:    ${totalBlocked}`);
-    doc.moveDown(1.5);
+    doc.fontSize(9).fillColor('#555')
+       .text(`Generated: ${generatedAt}  |  Filter: ${audienceLabel}`, { align: 'center' });
+    doc.fillColor('#000').moveDown(1.5);
 
-    // Joined section
-    doc.fontSize(13).font('Helvetica-Bold').text(`New Users Joined (${joined.length})`);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
-    doc.moveDown(0.3).font('Helvetica').fontSize(10);
+    // Summary
+    pdfSection(doc, 'Summary');
+    const summaryY = doc.y;
+    doc.fontSize(10);
+    doc.text(`New users (this period):`, 50, summaryY);      doc.text(String(joined.length),   250, summaryY);
+    doc.text(`Deleted (this period):`,   50, summaryY + 16); doc.text(String(deleted.length),  250, summaryY + 16);
+    doc.text(`Total active users:`,      50, summaryY + 32); doc.text(String(totalActive),     250, summaryY + 32);
+    doc.text(`Total blocked users:`,     50, summaryY + 48); doc.text(String(totalBlocked),    250, summaryY + 48);
+    doc.text(`Total owners:`,            320, summaryY);     doc.text(String(totalOwners),     460, summaryY);
+    doc.text(`Total safety:`,            320, summaryY + 16);doc.text(String(totalSafety),     460, summaryY + 16);
+    doc.y = summaryY + 72;
+    doc.moveDown(1);
 
+    // New Users table
+    pdfSection(doc, `New Users Joined (${joined.length})`);
     if (joined.length === 0) {
       doc.fillColor('#888').text('No new users in this period.').fillColor('#000');
     } else {
+      // Header row
+      const W = [25, 120, 160, 80, 90, 70];
+      doc.font('Helvetica-Bold').fontSize(9);
+      pdfRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Platform', 'Joined'], W);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ddd').lineWidth(0.5).stroke().moveDown(0.3);
+      doc.font('Helvetica').lineWidth(1);
+
       joined.forEach((u, i) => {
-        const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `ID ${u.telegram_id}`;
-        const company = u.company_name || '—';
-        const role = u.role || 'unknown';
-        const date = fmtDate(u.created_at);
-        doc.text(`${i + 1}. ${name}  |  ${company}  |  Role: ${role}  |  Joined: ${date}`);
+        const bg = i % 2 === 0 ? '#f8f9ff' : '#ffffff';
+        const rowY = doc.y;
+        doc.rect(50, rowY - 2, 495, 14).fill(bg).fillColor('#000');
+        pdfRow(doc, [
+          i + 1,
+          safePdfName(u),
+          u.company_name || '—',
+          roleLabel(u.role),
+          platformLabel(u.platform),
+          fmtDate(u.created_at),
+        ], W);
       });
     }
-    doc.moveDown(1.5);
+    doc.moveDown(1);
 
-    // Deleted section
-    doc.fontSize(13).font('Helvetica-Bold').text(`Deleted by Admin (${deleted.length})`);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').stroke();
-    doc.moveDown(0.3).font('Helvetica').fontSize(10);
-
+    // Deleted Users table
+    pdfSection(doc, `Deleted by Admin (${deleted.length})`);
     if (deleted.length === 0) {
       doc.fillColor('#888').text('No users deleted in this period.').fillColor('#000');
     } else {
+      const W2 = [25, 145, 185, 80, 110];
+      doc.font('Helvetica-Bold').fontSize(9);
+      pdfRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Deleted On'], W2);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ddd').lineWidth(0.5).stroke().moveDown(0.3);
+      doc.font('Helvetica').lineWidth(1);
+
       deleted.forEach((u, i) => {
-        const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || `ID ${u.telegram_id}`;
-        const company = u.company_name || '—';
-        const date = fmtDate(u.deleted_at);
-        doc.text(`${i + 1}. ${name}  |  ${company}  |  Deleted: ${date}`);
+        const bg = i % 2 === 0 ? '#fff5f5' : '#ffffff';
+        const rowY = doc.y;
+        doc.rect(50, rowY - 2, 495, 14).fill(bg).fillColor('#000');
+        pdfRow(doc, [
+          i + 1,
+          safePdfName(u),
+          u.company_name || '—',
+          roleLabel(u.role),
+          fmtDate(u.deleted_at),
+        ], W2);
       });
     }
 
-    doc.end();
+    // Footer
+    doc.moveDown(2);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').lineWidth(0.5).stroke().moveDown(0.3);
+    doc.fontSize(8).fillColor('#888')
+       .text('Owner Assistant Bot — Confidential Report', { align: 'center' });
 
+    doc.end();
     await new Promise(resolve => stream.on('end', resolve));
     const pdfBuffer = Buffer.concat(chunks);
 
-    const filename = `report_${period}_${now.toISOString().slice(0, 10)}.pdf`;
+    const filename = `report_${period}_${audience}_${now.toISOString().slice(0, 10)}.pdf`;
     await ctx.replyWithDocument(
       { source: pdfBuffer, filename },
-      { caption: `📄 <b>${periodLabel}</b>\n\nJoined: ${joined.length}  |  Deleted: ${deleted.length}  |  Active: ${totalActive}`, parse_mode: 'HTML' }
+      {
+        caption: `📄 <b>${periodLabel}</b>\nFilter: ${audienceLabel}\n\nJoined: ${joined.length}  |  Deleted: ${deleted.length}  |  Active: ${totalActive}`,
+        parse_mode: 'HTML',
+      }
     );
   } catch (err) {
     logger.error('haGenerateReport error:', err);
@@ -1127,7 +1240,7 @@ module.exports = {
   haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
-  haReport, haGenerateReport,
+  haReport, haReportAudience, haGenerateReport,
   haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
   haBlocks, haBlockDetail, haBlockOwners,
   haAssignBlock, haSetBlock,
