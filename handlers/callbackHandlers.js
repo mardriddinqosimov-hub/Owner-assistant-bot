@@ -1952,197 +1952,226 @@ const helpMenu = async (ctx) => {
 
 const sendManual = async (ctx) => {
   try {
-    await ctx.answerCbQuery('Generating manual…');
+    await ctx.answerCbQuery('Generating manual...');
 
-    const doc    = new PDFDocument({ margin: 55, size: 'A4' });
+    const doc    = new PDFDocument({ size: 'A4', autoFirstPage: true, margins: { top: 50, bottom: 50, left: 55, right: 55 } });
     const stream = new PassThrough();
     const chunks = [];
     doc.pipe(stream);
     stream.on('data', c => chunks.push(c));
 
-    const W = 485; // usable width
+    const L = 55, R = 540, W = 485;
+    let y = 50;
 
-    function heading(text, level = 1) {
-      if (level === 1) {
-        doc.rect(55, doc.y, W, 28).fill('#1a1a2e');
-        doc.fillColor('#fff').fontSize(14).font('Helvetica-Bold')
-           .text(text, 65, doc.y - 22, { width: W - 20 });
-        doc.fillColor('#000').moveDown(0.8);
-      } else {
-        doc.moveDown(0.4);
-        doc.fontSize(11).font('Helvetica-Bold').fillColor('#1a1a2e').text(text);
-        doc.moveTo(55, doc.y).lineTo(540, doc.y).strokeColor('#3a86ff').lineWidth(1).stroke();
-        doc.fillColor('#000').moveDown(0.4);
-      }
+    // ── helpers (all use explicit y, return new y) ────────────────────────────
+    function newPageIfNeeded(needed = 60) {
+      if (y + needed > 780) { doc.addPage(); y = 50; }
+    }
+
+    function h1(text) {
+      newPageIfNeeded(34);
+      doc.rect(L, y, W, 26).fill('#1a1a2e');
+      doc.fillColor('#ffffff').fontSize(12).font('Helvetica-Bold')
+         .text(text, L + 8, y + 7, { width: W - 16, lineBreak: false });
+      doc.fillColor('#000000').lineWidth(1);
+      y += 32;
+    }
+
+    function h2(text) {
+      newPageIfNeeded(28);
+      y += 6;
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#1a1a2e')
+         .text(text, L, y, { width: W, lineBreak: false });
+      y += 13;
+      doc.rect(L, y, W, 1).fill('#3a86ff');
+      doc.fillColor('#000000');
+      y += 6;
     }
 
     function body(text) {
-      doc.fontSize(9.5).font('Helvetica').fillColor('#222').text(text, { width: W, lineGap: 2 });
-      doc.moveDown(0.4);
+      newPageIfNeeded(24);
+      doc.fontSize(9.5).font('Helvetica').fillColor('#222222')
+         .text(text, L, y, { width: W, lineGap: 1.5 });
+      y = doc.y + 6;
     }
 
     function bullet(text) {
-      doc.fontSize(9.5).font('Helvetica').fillColor('#222')
-         .text(`•  ${text}`, { indent: 12, width: W - 12, lineGap: 2 });
+      newPageIfNeeded(18);
+      doc.fontSize(9.5).font('Helvetica').fillColor('#333333')
+         .text('- ' + text, L + 14, y, { width: W - 14, lineGap: 1.5 });
+      y = doc.y + 4;
     }
 
     function note(text) {
-      doc.fontSize(8.5).font('Helvetica-Oblique').fillColor('#555').text(text, { width: W });
-      doc.fillColor('#000').moveDown(0.3);
+      newPageIfNeeded(16);
+      doc.fontSize(8.5).font('Helvetica-Oblique').fillColor('#666666')
+         .text(text, L + 14, y, { width: W - 14 });
+      y = doc.y + 6;
+      doc.fillColor('#000000');
     }
 
-    // ── Cover ──────────────────────────────────────────────────────────────────
-    doc.rect(55, 55, W, 90).fill('#1a1a2e');
-    doc.fillColor('#fff').fontSize(22).font('Helvetica-Bold')
-       .text('OWNER ASSISTANT BOT', 55, 75, { align: 'center', width: W });
+    function tableRow(cells, colX, colW, rowH, bg, bold) {
+      newPageIfNeeded(rowH + 2);
+      const totalW = colX[colX.length - 1] + colW[colW.length - 1] - colX[0];
+      doc.rect(colX[0], y, totalW, rowH).fill(bg);
+      doc.fillColor(bold ? '#ffffff' : '#222222')
+         .font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5);
+      cells.forEach((cell, i) => {
+        doc.text(String(cell == null ? '' : cell), colX[i] + 4, y + 4,
+          { width: colW[i] - 8, lineBreak: false, ellipsis: true });
+      });
+      doc.fillColor('#000000');
+      y += rowH;
+    }
+
+    // ── Cover ─────────────────────────────────────────────────────────────────
+    doc.rect(L, y, W, 80).fill('#1a1a2e');
+    doc.fillColor('#ffffff').fontSize(20).font('Helvetica-Bold')
+       .text('OWNER ASSISTANT BOT', L, y + 14, { align: 'center', width: W, lineBreak: false });
     doc.fontSize(12).font('Helvetica')
-       .text('User Manual', 55, 104, { align: 'center', width: W });
-    doc.fontSize(9).fillColor('#aaa')
-       .text(`Version 1.0  |  STS Smart Transportation Solutions`, 55, 124, { align: 'center', width: W });
-    doc.fillColor('#000').moveDown(3.5);
+       .text('User Manual', L, y + 40, { align: 'center', width: W, lineBreak: false });
+    doc.fontSize(8.5).fillColor('#aaaaaa')
+       .text('Version 1.0  |  STS Smart Transportation Solutions', L, y + 58, { align: 'center', width: W, lineBreak: false });
+    y += 96;
+    doc.fillColor('#000000');
 
-    // ── 1. Overview ────────────────────────────────────────────────────────────
-    heading('1.  OVERVIEW');
+    // ── 1. Overview ───────────────────────────────────────────────────────────
+    h1('1.  OVERVIEW');
     body(
-      'Owner Assistant Bot is a Telegram bot built for trucking company owners to monitor ' +
-      'ELD (Electronic Logging Device) drivers in real time, receive DOT inspection alerts, ' +
-      'and order ELD devices — all without leaving Telegram.'
+      'Owner Assistant Bot is a Telegram bot for trucking company owners. ' +
+      'It monitors ELD (Electronic Logging Device) drivers in real time, sends DOT inspection alerts, ' +
+      'and lets you order ELD devices — all from inside Telegram.'
     );
 
-    // ── 2. Getting Started ─────────────────────────────────────────────────────
-    heading('2.  GETTING STARTED');
+    // ── 2. Getting Started ────────────────────────────────────────────────────
+    h1('2.  GETTING STARTED');
     body('Step 1 — Open the bot in Telegram and send  /start');
-    body('Step 2 — Connect your ELD company:');
+    body('Step 2 — Connect your ELD company with your Company API Key:');
     bullet('/setapi  YOUR_COMPANY_KEY');
-    note('   Get your Company API Key from: ELD portal → Settings → API Key → Generate');
-    doc.moveDown(0.3);
-    body('Step 3 — Choose your ELD platform (Leader ELD or Factor ELD). ' +
-         'This determines your Zelle payment recipient for device orders.');
+    note('Get your key from: ELD portal  ->  Settings  ->  API Key  ->  Generate');
+    body('Step 3 — Select your ELD platform (Leader ELD or Factor ELD). ' +
+         'This sets the correct Zelle recipient for device orders.');
 
-    // ── 3. View Drivers ────────────────────────────────────────────────────────
-    heading('3.  VIEW DRIVERS  (Primary Feature)', 1);
+    // ── 3. View Drivers ───────────────────────────────────────────────────────
+    h1('3.  VIEW DRIVERS  (Primary Feature)');
     body(
-      'This is the heart of the bot. It pulls live data from your ELD provider and shows ' +
-      'every active driver\'s current status at a glance.'
+      'This is the main feature of the bot. It connects to your ELD system and shows ' +
+      'every active driver\'s live status, location, speed, and HOS clocks in one place.'
     );
 
-    heading('3.1  Driver List', 2);
-    body('Tap  👥 View Drivers  from the main menu to see all active drivers.');
-    bullet('Each driver card shows: Name, HOS Status, and Truck #');
-    bullet('Drivers are colour-coded: 🟢 Driving  🟡 On Duty  🔵 Sleeper  ⚪ Off Duty');
-    bullet('Tap any driver\'s name to open their detail card');
-    doc.moveDown(0.3);
+    h2('3.1  Driver List');
+    body('Tap "View Drivers" from the main menu to see all active drivers.');
+    bullet('Each row shows: driver name, current HOS status, and truck number');
+    bullet('Status labels: DRIVING  /  ON DUTY  /  SLEEPER BERTH  /  OFF DUTY  /  PC  /  YM');
+    bullet('Tap any driver name to open their full detail card');
 
-    heading('3.2  Driver Detail Card', 2);
-    body('The detail card shows everything about one driver in real time:');
+    h2('3.2  Driver Detail Card');
+    body('The detail card shows live information for one driver:');
+    y += 4;
 
-    const detailRows = [
-      ['Field',         'What it means'],
-      ['Status',        'Current HOS duty status (Driving, On Duty, Off Duty, Sleeper Berth, PC, YM)'],
-      ['Speed',         'Current vehicle speed in mph (live from GPS)'],
-      ['Location',      'City + state or address from GPS coordinates'],
-      ['Truck #',       'Unit number of the assigned vehicle'],
-      ['Drive left',    'How many driving hours remain before the 11-hour limit is hit'],
-      ['Shift left',    'Hours remaining in the 14-hour on-duty window'],
-      ['Break left',    'Time until the mandatory 30-minute break is required'],
-      ['Cycle left',    'Hours remaining in the 70-hour / 8-day cycle'],
+    const DR = [
+      ['Field', 'What it shows'],
+      ['Status',      'Current HOS duty status (Driving, On Duty, Off Duty, Sleeper, PC, YM)'],
+      ['Speed',       'Live vehicle speed in mph from GPS'],
+      ['Location',    'City and state from GPS coordinates'],
+      ['Truck #',     'Unit number of the assigned vehicle'],
+      ['Drive left',  'Driving hours remaining before the 11-hour limit'],
+      ['Shift left',  'Hours remaining in the 14-hour on-duty window'],
+      ['Break left',  'Time until the mandatory 30-minute break is due'],
+      ['Cycle left',  'Hours remaining in the 70-hour / 8-day cycle'],
     ];
-    const cW = [100, W - 100];
-    const startX = 55;
-    detailRows.forEach((row, i) => {
-      const rowY = doc.y;
-      const bg = i === 0 ? '#1a1a2e' : i % 2 === 0 ? '#f0f4ff' : '#fff';
-      const fc = i === 0 ? '#fff' : '#222';
-      doc.rect(startX, rowY - 2, W, 14).fill(bg);
-      doc.fillColor(fc).font(i === 0 ? 'Helvetica-Bold' : 'Helvetica').fontSize(8.5);
-      doc.text(row[0], startX + 4, rowY, { width: cW[0] - 4, lineBreak: false });
-      doc.text(row[1], startX + cW[0], rowY, { width: cW[1] - 4, lineBreak: false });
-      doc.moveDown(0.65);
+    const DRX = [L, L + 90];
+    const DRW = [90, W - 90];
+    DR.forEach((row, i) => {
+      tableRow(row, DRX, DRW, 18, i === 0 ? '#2d3a5e' : i % 2 === 0 ? '#f0f4ff' : '#ffffff', i === 0);
     });
-    doc.fillColor('#000').moveDown(0.5);
+    y += 8;
 
-    heading('3.3  Refresh Button', 2);
+    h2('3.3  Refresh Button');
     body(
-      'Each detail card has a  🔄 Refresh  button. Tap it to pull the latest data from ' +
-      'the ELD provider instantly. The card updates in place — no need to go back to the list.'
+      'Every detail card has a "Refresh" button. Tap it to pull fresh data from the ELD ' +
+      'provider immediately. The card updates in place without going back to the list.'
     );
 
-    heading('3.4  Driver List Refresh', 2);
+    h2('3.4  Refresh Driver List');
     body(
-      'On the driver list screen there is also a  🔄 Refresh List  button that re-syncs ' +
-      'all drivers (adds new drivers, removes deactivated ones) and updates statuses.'
+      'The driver list has a "Refresh List" button that re-syncs all drivers: ' +
+      'adds newly assigned drivers and removes deactivated ones.'
     );
 
-    heading('3.5  HOS Clock Colors & Urgency', 2);
-    bullet('Green time remaining — driver is well within limits');
-    bullet('When clocks reach 0:00 the driver must stop and rest');
-    bullet('Cycle resets after 34 consecutive hours off duty');
-    note('   HOS data comes directly from the ELD device — it is as accurate as the device itself.');
+    h2('3.5  HOS Clocks Explained');
+    bullet('Drive remaining — counts down from 11:00. Must reach 0 before driver parks');
+    bullet('Shift remaining — counts down from 14:00. Total on-duty window per shift');
+    bullet('Break remaining — time until a 30-min break must be taken (resets drive clock)');
+    bullet('Cycle remaining — counts down from 70:00 over 8 days. Resets after 34 hrs off');
+    note('HOS data comes directly from the ELD device and is as accurate as the device itself.');
 
-    // ── 4. DOT Inspections ─────────────────────────────────────────────────────
-    heading('4.  DOT INSPECTIONS');
+    // ── 4. DOT Inspections ────────────────────────────────────────────────────
+    h1('4.  DOT INSPECTIONS');
     body(
-      'The bot monitors your ELD portal for new roadside DOT inspection records. ' +
-      'When a new inspection is found you receive an automatic alert in Telegram with:'
+      'The bot automatically checks for new roadside DOT inspection records in your ELD portal. ' +
+      'When a new inspection is detected you receive an alert in Telegram containing:'
     );
     bullet('Driver name and inspection date');
-    bullet('Report number and inspection level');
-    bullet('Number of violations (⚠️ if any, ✅ if clean)');
-    bullet('Inspection outcome (pass / fail / out of service)');
-    doc.moveDown(0.3);
-    body('Tap  🚔 DOT Inspections  from the main menu to view all past inspection records.');
+    bullet('Report number and inspection level (Level I through VI)');
+    bullet('Number of violations found');
+    bullet('Inspection result (pass / fail / out of service)');
+    body('Tap "DOT Inspections" from the main menu to browse all past records.');
 
-    // ── 5. Order Devices ───────────────────────────────────────────────────────
-    heading('5.  ORDER DEVICES');
-    body('Use this section to order ELD hardware for your trucks.');
-    bullet('Choose a pre-set bundle or build a custom order');
-    bullet('Select cable type and quantity');
-    bullet('Choose shipping method');
-    bullet('Confirm — your order is sent to the admin team for processing');
-    note('   Payment is handled via Zelle. Recipient depends on your ELD platform (Leader or Factor).');
+    // ── 5. Order Devices ──────────────────────────────────────────────────────
+    h1('5.  ORDER DEVICES');
+    body('Use this section to order ELD hardware for your fleet.');
+    bullet('Choose a pre-set bundle or build a custom order item by item');
+    bullet('Select cable type and quantity for each device');
+    bullet('Choose shipping method (standard or expedited)');
+    bullet('Review the order summary and confirm — it goes to the admin team for processing');
+    note('Payment is via Zelle. Recipient is determined by your ELD platform (Leader or Factor).');
 
-    // ── 6. My Referrals ────────────────────────────────────────────────────────
-    heading('6.  MY REFERRALS');
+    // ── 6. My Referrals ───────────────────────────────────────────────────────
+    h1('6.  MY REFERRALS');
     body(
-      'Share your referral link with other trucking company owners. ' +
-      'When they sign up and place an order you earn a commission.'
+      'Refer other trucking company owners to the bot. ' +
+      'When a referred owner places a device order, you earn a referral commission.'
     );
-    bullet('View your referral balance and history');
-    bullet('Request a payout via card or apply credit to your next order');
+    bullet('View total referral earnings and individual referral history');
+    bullet('Request a cash payout or apply the credit toward your next device order');
 
-    // ── 7. Special Task ────────────────────────────────────────────────────────
-    heading('7.  SPECIAL TASK');
+    // ── 7. Special Task ───────────────────────────────────────────────────────
+    h1('7.  SPECIAL TASK');
     body(
-      'Use this section to submit a custom request to the admin team — anything that doesn\'t ' +
-      'fit into a standard device order. Describe what you need and the team will follow up.'
-    );
-
-    // ── 8. Change Team ─────────────────────────────────────────────────────────
-    heading('8.  CHANGE TEAM');
-    body(
-      'If your company is managed by multiple people (owner + safety officer), each person ' +
-      'can connect to the same company. Use  🔄 Change Team  to switch which account you ' +
-      'are working under or to update your company API key.'
+      'Submit a custom request to the support team for anything that does not fit a standard ' +
+      'device order — account changes, bulk orders, custom cables, or other questions. ' +
+      'Describe your need and the team will respond directly in Telegram.'
     );
 
-    // ── 9. Commands Reference ──────────────────────────────────────────────────
-    heading('9.  COMMANDS REFERENCE');
-    const cmds = [
-      ['/start',        'Open the main menu'],
-      ['/setapi KEY',   'Connect or reconnect your ELD company using a Company API Key'],
+    // ── 8. Change Team ────────────────────────────────────────────────────────
+    h1('8.  CHANGE TEAM');
+    body(
+      'Multiple people can monitor the same company (e.g. owner + safety officer). ' +
+      'Each person connects to their own Telegram account and links the same Company API Key. ' +
+      'Use "Change Team" to update your API key or switch to a different company.'
+    );
+
+    // ── 9. Commands ───────────────────────────────────────────────────────────
+    h1('9.  COMMANDS REFERENCE');
+    y += 4;
+    const CMDS = [
+      ['/start',      'Open the main menu'],
+      ['/setapi KEY', 'Connect or update your ELD company using a Company API Key'],
     ];
-    cmds.forEach(([cmd, desc]) => {
-      const y = doc.y;
-      doc.font('Helvetica-Bold').fontSize(9).fillColor('#1a1a2e').text(cmd, 55, y, { width: 110, lineBreak: false });
-      doc.font('Helvetica').fillColor('#222').text(desc, 170, y, { width: W - 115 });
-      doc.moveDown(0.5);
+    const CX = [L, L + 120];
+    const CW = [120, W - 120];
+    tableRow(['Command', 'Description'], CX, CW, 20, '#2d3a5e', true);
+    CMDS.forEach((row, i) => {
+      tableRow(row, CX, CW, 20, i % 2 === 0 ? '#f8f9ff' : '#ffffff', false);
     });
+    y += 14;
 
-    // ── Footer ─────────────────────────────────────────────────────────────────
-    doc.moveDown(1.5);
-    doc.moveTo(55, doc.y).lineTo(540, doc.y).strokeColor('#ccc').lineWidth(0.5).stroke().moveDown(0.3);
-    doc.fontSize(8).fillColor('#888')
-       .text('Owner Assistant Bot — Internal Use Only', { align: 'center' });
+    // ── Footer ────────────────────────────────────────────────────────────────
+    newPageIfNeeded(20);
+    doc.rect(L, y, W, 1).fill('#cccccc'); y += 6;
+    doc.fillColor('#888888').fontSize(7.5).font('Helvetica')
+       .text('Owner Assistant Bot  —  Internal Use Only', L, y, { align: 'center', width: W });
 
     doc.end();
     await new Promise(resolve => stream.on('end', resolve));
@@ -2150,11 +2179,11 @@ const sendManual = async (ctx) => {
 
     await ctx.replyWithDocument(
       { source: buf, filename: 'Owner_Assistant_Bot_Manual.pdf' },
-      { caption: '📖 <b>Owner Assistant Bot — User Manual</b>\n\nFull guide to every section of the bot.', parse_mode: 'HTML' }
+      { caption: '<b>Owner Assistant Bot — User Manual</b>\n\nFull guide to every section of the bot.', parse_mode: 'HTML' }
     );
   } catch (err) {
     logger.error('sendManual error:', err);
-    await ctx.reply('❌ Could not generate manual. Please try again.');
+    await ctx.reply('Could not generate manual. Please try again.');
   }
 };
 

@@ -659,19 +659,40 @@ function platformLabel(p) {
   return p;
 }
 
-function pdfSection(doc, title) {
-  doc.fontSize(12).font('Helvetica-Bold').fillColor('#1a1a2e').text(title.toUpperCase());
-  doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).strokeColor('#3a86ff').lineWidth(1.5).stroke();
-  doc.moveDown(0.5).font('Helvetica').fontSize(9.5).fillColor('#000').lineWidth(1);
+// Returns new Y after the section header
+function pdfSection(doc, title, y) {
+  doc.rect(50, y, 495, 20).fill('#1a1a2e');
+  doc.fillColor('#ffffff').fontSize(10).font('Helvetica-Bold')
+     .text(title.toUpperCase(), 56, y + 5, { width: 483, lineBreak: false });
+  doc.fillColor('#000').lineWidth(1);
+  return y + 26;
 }
 
-function pdfRow(doc, cols, widths, x0 = 50) {
-  let x = x0;
-  cols.forEach((text, i) => {
-    doc.text(String(text || '—'), x, doc.y, { width: widths[i] - 4, lineBreak: false, ellipsis: true });
-    x += widths[i];
+// Draws one table row; returns new Y
+function pdfRow(doc, cols, xs, widths, y, rowH, bg) {
+  doc.rect(xs[0], y, xs[xs.length - 1] + widths[widths.length - 1] - xs[0], rowH).fill(bg);
+  doc.fillColor('#000');
+  cols.forEach((cell, i) => {
+    doc.fontSize(8.5).font('Helvetica')
+       .text(String(cell == null ? '—' : cell), xs[i] + 4, y + 4, {
+         width: widths[i] - 8,
+         lineBreak: false,
+         ellipsis: true,
+       });
   });
-  doc.moveDown(0.6);
+  return y + rowH;
+}
+
+// Header row (bold, dark bg)
+function pdfHeaderRow(doc, cols, xs, widths, y, rowH) {
+  doc.rect(xs[0], y, xs[xs.length - 1] + widths[widths.length - 1] - xs[0], rowH).fill('#2d3a5e');
+  doc.fillColor('#ffffff');
+  cols.forEach((cell, i) => {
+    doc.fontSize(8.5).font('Helvetica-Bold')
+       .text(String(cell), xs[i] + 4, y + 4, { width: widths[i] - 8, lineBreak: false });
+  });
+  doc.fillColor('#000');
+  return y + rowH;
 }
 
 const haReport = async (ctx) => {
@@ -768,97 +789,95 @@ const haGenerateReport = async (ctx) => {
     ]);
 
     // ── Build PDF ──────────────────────────────────────────────────────────────
-    const doc    = new PDFDocument({ margin: 50, size: 'A4' });
+    const doc    = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
     const stream = new PassThrough();
     const chunks = [];
     doc.pipe(stream);
     stream.on('data', c => chunks.push(c));
 
     const generatedAt = now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Chicago' });
+    const PAGE_W = 595, L = 50, R = 545, BODY = 495;
+    let y = 50;
 
-    // Header
-    doc.rect(50, 40, 495, 70).fill('#1a1a2e');
-    doc.fillColor('#ffffff').fontSize(18).font('Helvetica-Bold')
-       .text('OWNER ASSISTANT BOT', 50, 55, { align: 'center', width: 495 });
+    // ── Header banner ─────────────────────────────────────────────────────────
+    doc.rect(L, y, BODY, 66).fill('#1a1a2e');
+    doc.fillColor('#ffffff').fontSize(17).font('Helvetica-Bold')
+       .text('OWNER ASSISTANT BOT', L, y + 10, { align: 'center', width: BODY, lineBreak: false });
     doc.fontSize(11).font('Helvetica')
-       .text(periodLabel, 50, 78, { align: 'center', width: 495 });
-    doc.fillColor('#000').moveDown(2.5);
+       .text(periodLabel, L, y + 32, { align: 'center', width: BODY, lineBreak: false });
+    doc.fontSize(8.5).fillColor('#aaaaaa')
+       .text('Filter: ' + audienceLabel, L, y + 50, { align: 'center', width: BODY, lineBreak: false });
+    y += 78;
 
-    doc.fontSize(9).fillColor('#555')
-       .text(`Generated: ${generatedAt}  |  Filter: ${audienceLabel}`, { align: 'center' });
-    doc.fillColor('#000').moveDown(1.5);
+    doc.fillColor('#555555').fontSize(8)
+       .text('Generated: ' + generatedAt, L, y, { align: 'right', width: BODY, lineBreak: false });
+    y += 18;
 
-    // Summary
-    pdfSection(doc, 'Summary');
-    const summaryY = doc.y;
-    doc.fontSize(10);
-    doc.text(`New users (this period):`, 50, summaryY);      doc.text(String(joined.length),   250, summaryY);
-    doc.text(`Deleted (this period):`,   50, summaryY + 16); doc.text(String(deleted.length),  250, summaryY + 16);
-    doc.text(`Total active users:`,      50, summaryY + 32); doc.text(String(totalActive),     250, summaryY + 32);
-    doc.text(`Total blocked users:`,     50, summaryY + 48); doc.text(String(totalBlocked),    250, summaryY + 48);
-    doc.text(`Total owners:`,            320, summaryY);     doc.text(String(totalOwners),     460, summaryY);
-    doc.text(`Total safety:`,            320, summaryY + 16);doc.text(String(totalSafety),     460, summaryY + 16);
-    doc.y = summaryY + 72;
-    doc.moveDown(1);
+    // ── Summary box ───────────────────────────────────────────────────────────
+    doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 6;
+    doc.fillColor('#000000').fontSize(10).font('Helvetica-Bold').text('SUMMARY', L, y); y += 16;
 
-    // New Users table
-    pdfSection(doc, `New Users Joined (${joined.length})`);
+    const sumFields = [
+      ['New users joined (this period):', joined.length,  'Total active users:',   totalActive],
+      ['Users deleted (this period):',    deleted.length, 'Total blocked users:',  totalBlocked],
+      ['Total owners:',                   totalOwners,    'Total safety officers:', totalSafety],
+    ];
+    sumFields.forEach(([l1, v1, l2, v2]) => {
+      doc.font('Helvetica').fontSize(9.5).fillColor('#333')
+         .text(l1, L, y, { width: 200, lineBreak: false })
+         .font('Helvetica-Bold').fillColor('#000')
+         .text(String(v1), L + 204, y, { width: 40, lineBreak: false })
+         .font('Helvetica').fillColor('#333')
+         .text(l2, L + 260, y, { width: 185, lineBreak: false })
+         .font('Helvetica-Bold').fillColor('#000')
+         .text(String(v2), L + 448, y, { width: 47, lineBreak: false });
+      y += 16;
+    });
+    y += 6;
+    doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 14;
+
+    // ── New Users table ───────────────────────────────────────────────────────
+    const ROW_H = 18;
+    // col widths must sum to BODY (495)
+    const NW = [28, 120, 162, 70, 80, 35]; // #, Name, Company, Role, Platform, Joined (date fits 35 if short format)
+    // Actually date like "07/22/2026" is 10 chars at 8.5pt ~ 55px, so let's use:
+    const NW2 = [28, 120, 152, 70, 80, 45]; // sum = 495
+    const NX  = NW2.reduce((acc, w, i) => { acc.push((acc[i - 1] || L) + (i > 0 ? NW2[i - 1] : 0)); return acc; }, [L]);
+
+    y = pdfSection(doc, `New Users Joined  (${joined.length})`, y);
     if (joined.length === 0) {
-      doc.fillColor('#888').text('No new users in this period.').fillColor('#000');
+      doc.fillColor('#888888').fontSize(9).font('Helvetica').text('No new users in this period.', L, y); y += 20;
     } else {
-      // Header row
-      const W = [25, 120, 160, 80, 90, 70];
-      doc.font('Helvetica-Bold').fontSize(9);
-      pdfRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Platform', 'Joined'], W);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ddd').lineWidth(0.5).stroke().moveDown(0.3);
-      doc.font('Helvetica').lineWidth(1);
-
+      y = pdfHeaderRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Platform', 'Joined'], NX, NW2, y, ROW_H);
       joined.forEach((u, i) => {
-        const bg = i % 2 === 0 ? '#f8f9ff' : '#ffffff';
-        const rowY = doc.y;
-        doc.rect(50, rowY - 2, 495, 14).fill(bg).fillColor('#000');
-        pdfRow(doc, [
-          i + 1,
-          safePdfName(u),
-          u.company_name || '—',
-          roleLabel(u.role),
-          platformLabel(u.platform),
-          fmtDate(u.created_at),
-        ], W);
+        if (y > 750) { doc.addPage(); y = 50; }
+        y = pdfRow(doc, [i + 1, safePdfName(u), u.company_name || '—', roleLabel(u.role), platformLabel(u.platform), fmtDate(u.created_at)],
+          NX, NW2, y, ROW_H, i % 2 === 0 ? '#f0f4ff' : '#ffffff');
       });
     }
-    doc.moveDown(1);
+    y += 14;
 
-    // Deleted Users table
-    pdfSection(doc, `Deleted by Admin (${deleted.length})`);
+    // ── Deleted Users table ───────────────────────────────────────────────────
+    const DW = [28, 150, 192, 80, 45]; // sum = 495
+    const DX  = DW.reduce((acc, w, i) => { acc.push((acc[i - 1] || L) + (i > 0 ? DW[i - 1] : 0)); return acc; }, [L]);
+
+    y = pdfSection(doc, `Deleted by Admin  (${deleted.length})`, y);
     if (deleted.length === 0) {
-      doc.fillColor('#888').text('No users deleted in this period.').fillColor('#000');
+      doc.fillColor('#888888').fontSize(9).font('Helvetica').text('No users deleted in this period.', L, y); y += 20;
     } else {
-      const W2 = [25, 145, 185, 80, 110];
-      doc.font('Helvetica-Bold').fontSize(9);
-      pdfRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Deleted On'], W2);
-      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ddd').lineWidth(0.5).stroke().moveDown(0.3);
-      doc.font('Helvetica').lineWidth(1);
-
+      y = pdfHeaderRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Deleted On'], DX, DW, y, ROW_H);
       deleted.forEach((u, i) => {
-        const bg = i % 2 === 0 ? '#fff5f5' : '#ffffff';
-        const rowY = doc.y;
-        doc.rect(50, rowY - 2, 495, 14).fill(bg).fillColor('#000');
-        pdfRow(doc, [
-          i + 1,
-          safePdfName(u),
-          u.company_name || '—',
-          roleLabel(u.role),
-          fmtDate(u.deleted_at),
-        ], W2);
+        if (y > 750) { doc.addPage(); y = 50; }
+        y = pdfRow(doc, [i + 1, safePdfName(u), u.company_name || '—', roleLabel(u.role), fmtDate(u.deleted_at)],
+          DX, DW, y, ROW_H, i % 2 === 0 ? '#fff0f0' : '#ffffff');
       });
     }
 
-    // Footer
-    doc.moveDown(2);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').lineWidth(0.5).stroke().moveDown(0.3);
-    doc.fontSize(8).fillColor('#888')
-       .text('Owner Assistant Bot — Confidential Report', { align: 'center' });
+    // ── Footer ────────────────────────────────────────────────────────────────
+    y += 20;
+    doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 6;
+    doc.fillColor('#888888').fontSize(7.5).font('Helvetica')
+       .text('Owner Assistant Bot  —  Confidential Report', L, y, { align: 'center', width: BODY });
 
     doc.end();
     await new Promise(resolve => stream.on('end', resolve));
