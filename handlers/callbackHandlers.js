@@ -2031,7 +2031,7 @@ const sendManual = async (ctx) => {
     doc.fontSize(12).font('Helvetica')
        .text('User Manual', L, y + 40, { align: 'center', width: W, lineBreak: false });
     doc.fontSize(8.5).fillColor('#aaaaaa')
-       .text('Version 1.0  |  STS Smart Transportation Solutions', L, y + 58, { align: 'center', width: W, lineBreak: false });
+       .text('Version 1.0', L, y + 58, { align: 'center', width: W, lineBreak: false });
     y += 96;
     doc.fillColor('#000000');
 
