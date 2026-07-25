@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
 const notifService = require('../services/notificationService');
 const menuTracker = require('../utils/menuTracker');
 const { sendMainMenu } = require('../utils/mainMenu');
@@ -309,15 +309,85 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
   logger.info(`DOT inspection alert sent to user ${user.id}: ${externalId}`);
 }
 
+async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId) {
+  const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
+  if (existing) return;
+
+  const startDate = log.start_date
+    ? new Date(log.start_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    : '';
+  const endDate = log.end_date
+    ? new Date(log.end_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    : '';
+
+  const record = await Inspection.create({
+    user_id:         user.id,
+    driver_id:       log.driver_id || '',
+    driver_name:     log.driver_name || 'Unknown Driver',
+    external_id:     externalId,
+    inspection_date: log.created_at ? new Date(log.created_at) : null,
+    report_number:   log.comment || '',
+    level:           '',
+    violations:      0,
+    result:          log.file_status || '',
+    details:         JSON.stringify(log),
+    notified:        false,
+    created_at:      new Date(),
+  });
+
+  const oldMsgId = menuTracker.get(user.telegram_id);
+  if (oldMsgId) {
+    try { await bot.telegram.deleteMessage(user.telegram_id, oldMsgId); } catch {}
+    menuTracker.del(user.telegram_id);
+  }
+
+  await bot.telegram.sendMessage(
+    user.telegram_id,
+    `🚔 <b>DOT Inspection Alert!</b>\n\n` +
+    `Driver: <b>${record.driver_name}</b>\n` +
+    (startDate && endDate ? `Period: ${startDate} → ${endDate}\n` : '') +
+    (record.result ? `Status: ${record.result}\n` : '') +
+    (record.report_number ? `Comment: ${record.report_number}\n` : '') +
+    `\nView details in <b>DOT Inspections</b> → menu.`,
+    { parse_mode: 'HTML' }
+  );
+
+  await sendMainMenu(bot, user.telegram_id);
+  await record.update({ notified: true });
+  logger.info(`FMCSA transfer alert sent to user ${user.id}: ${externalId}`);
+}
+
 async function checkNewInspections(bot) {
   const users = await User.findAll({ where: { company_api_key: { [Op.ne]: null } } });
 
+  // ── FMCSA transfers via Leader ELD session token ────────────────────────────
+  const sessionToken = process.env.LEADER_SESSION_TOKEN;
+  const tenantId = process.env.LEADER_TENANT_ID;
+
+  if (sessionToken && tenantId) {
+    try {
+      const logs = await fetchFmcsaTransfers(sessionToken, tenantId);
+      logger.info(`checkNewInspections: got ${logs.length} FMCSA transfer records`);
+
+      for (const log of logs) {
+        if (!log.id) continue;
+        const externalId = `fmcsa-${log.id}`;
+        const companyName = (log.company_name || '').toLowerCase().trim();
+        const matchedUser = users.find(u =>
+          u.company_name && u.company_name.toLowerCase().trim() === companyName
+        );
+        if (!matchedUser) continue;
+        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId);
+      }
+    } catch (err) {
+      logger.warn('FMCSA transfer check failed:', err.message);
+    }
+  }
+
+  // ── Legacy per-user inspection check (fallback) ─────────────────────────────
   for (const user of users) {
     try {
-      // ── Primary: /dot-inspections endpoint ──────────────────────────────────
       const inspections = await fetchInspections(user.company_api_key);
-      logger.info(`checkNewInspections: user ${user.id} got ${inspections.length} records from /dot-inspections`);
-
       for (const insp of inspections) {
         const externalId = String(
           parseInspField(insp, 'inspection_id', 'inspectionId', 'id', 'dot_inspection_id', 'dotInspectionId') || ''

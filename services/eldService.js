@@ -148,6 +148,32 @@ async function fetchInspections(companyKey) {
   return [];
 }
 
+async function fetchFmcsaTransfers(sessionToken, tenantId) {
+  const headers = {
+    'Authorization': `Bearer ${sessionToken}`,
+    'Tenant_id': tenantId,
+    'Accept': 'application/json',
+  };
+  const candidates = [
+    `${API_V1_BASE}/fmcsa?limit=200&page=1`,
+    `${API_V1_BASE}/fmcsa/company?limit=200&page=1`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await axios.get(url, { headers, timeout: 15000 });
+      const logs = res.data?.data?.logs ?? res.data?.logs ?? [];
+      if (Array.isArray(logs) && logs.length > 0) {
+        logger.info(`fetchFmcsaTransfers: ${url} returned ${logs.length} records`);
+        return logs;
+      }
+      logger.info(`fetchFmcsaTransfers: ${url} returned 0 records`);
+    } catch (err) {
+      logger.info(`fetchFmcsaTransfers: ${url} failed — ${err.response?.status || err.message}`);
+    }
+  }
+  return [];
+}
+
 async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   const client = makeClient(companyKey);
   const from = new Date();
@@ -172,4 +198,4 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   }
 }
 
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchDriverLogEvents, formatSeconds, reverseGeocode };
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers, fetchDriverLogEvents, formatSeconds, reverseGeocode };
