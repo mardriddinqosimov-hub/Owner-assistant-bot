@@ -367,20 +367,46 @@ async function checkNewInspections(bot) {
   if (sessionToken && tenantId) {
     try {
       const logs = await fetchFmcsaTransfers(sessionToken, tenantId);
-      logger.info(`checkNewInspections: got ${logs.length} FMCSA transfer records`);
+      logger.info(`checkNewInspections: got ${logs.length} Leader FMCSA transfer records`);
 
       for (const log of logs) {
         if (!log.id) continue;
         const externalId = `fmcsa-${log.id}`;
         const companyName = (log.company_name || '').toLowerCase().trim();
         const matchedUser = users.find(u =>
+          u.platform !== 'factor' &&
           u.company_name && u.company_name.toLowerCase().trim() === companyName
         );
         if (!matchedUser) continue;
         await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId);
       }
     } catch (err) {
-      logger.warn('FMCSA transfer check failed:', err.message);
+      logger.warn('Leader FMCSA transfer check failed:', err.message);
+    }
+  }
+
+  // ── FMCSA transfers via Factor ELD session token ─────────────────────────────
+  const factorToken = process.env.FACTOR_SESSION_TOKEN;
+  const factorTenantId = process.env.FACTOR_TENANT_ID;
+
+  if (factorToken && factorTenantId) {
+    try {
+      const logs = await fetchFmcsaTransfers(factorToken, factorTenantId);
+      logger.info(`checkNewInspections: got ${logs.length} Factor FMCSA transfer records`);
+
+      for (const log of logs) {
+        if (!log.id) continue;
+        const externalId = `fmcsa-factor-${log.id}`;
+        const companyName = (log.company_name || '').toLowerCase().trim();
+        const matchedUser = users.find(u =>
+          u.platform === 'factor' &&
+          u.company_name && u.company_name.toLowerCase().trim() === companyName
+        );
+        if (!matchedUser) continue;
+        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId);
+      }
+    } catch (err) {
+      logger.warn('Factor FMCSA transfer check failed:', err.message);
     }
   }
 
