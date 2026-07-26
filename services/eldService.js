@@ -49,20 +49,41 @@ async function fetchVehicleStatus(companyKey) {
   }
 
   const unitNumberMap = {};
+  const vehicleGpsMap = {};
   try {
     const res = await client.get('/vehicles', { params: { limit: 1000 } });
     const raw = res.data?.data ?? res.data?.vehicles ?? res.data?.results ?? res.data;
     if (Array.isArray(raw)) {
       for (const v of raw) {
         const vid = String(v.vehicle_id ?? v.id ?? '');
-        if (vid && v.number) unitNumberMap[vid] = v.number;
+        if (!vid) continue;
+        if (v.number) unitNumberMap[vid] = v.number;
+        // Capture last-known GPS from /vehicles if present
+        if (v.lat ?? v.latitude ?? v.gps_lat ?? v.last_lat ?? v.last_latitude) {
+          vehicleGpsMap[vid] = v;
+        }
       }
     }
   } catch (err) {
     logger.warn('fetchVehicleStatus: /vehicles failed — ' + (err.response?.status || err.message));
   }
 
-  return gpsRecords.map(v => {
+  // Build index of vehicles already covered by /latest-vehicle-status
+  const gpsById = {};
+  for (const v of gpsRecords) {
+    const vid = String(v.vehicle_id ?? v.id ?? '');
+    if (vid) gpsById[vid] = v;
+  }
+
+  // Add any vehicles from /vehicles that have GPS but aren't in /latest-vehicle-status
+  for (const [vid, v] of Object.entries(vehicleGpsMap)) {
+    if (!gpsById[vid]) {
+      logger.info(`fetchVehicleStatus: supplementing GPS for vehicle ${vid} from /vehicles`);
+      gpsById[vid] = v;
+    }
+  }
+
+  return Object.values(gpsById).map(v => {
     const vid = String(v.vehicle_id ?? v.id ?? '');
     return vid && unitNumberMap[vid] ? { ...v, number: unitNumberMap[vid] } : v;
   });
