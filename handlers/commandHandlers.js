@@ -71,7 +71,8 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
 
   const hosByDriverId = {};
   for (const h of hosRaw) {
-    if (h.driver_id) hosByDriverId[String(h.driver_id)] = h;
+    const hId = h.driver_id ?? h.driverId ?? h.id;
+    if (hId) hosByDriverId[String(hId)] = h;
   }
 
   const activeIds = [];
@@ -88,11 +89,23 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
 
     const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
 
-    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? hos.lat ?? st.lat ?? st.latitude ?? existing?.latitude;
-    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? hos.lon ?? st.lon ?? st.lng ?? st.longitude ?? existing?.longitude;
-    const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed;
-    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? hos.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number ?? existing?.truck_number;
-    const rawLocation = v.calc_location ?? v.location ?? v.address ?? hos.calculated_location ?? st.calc_location ?? st.location ?? existing?.location_string;
+    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.last_lat ?? v.last_latitude
+      ?? hos.lat ?? hos.latitude ?? hos.gps_lat ?? hos.gps_latitude
+      ?? st.lat ?? st.latitude ?? st.gps_lat
+      ?? existing?.latitude;
+    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_lng ?? v.last_lon ?? v.last_longitude
+      ?? hos.lon ?? hos.lng ?? hos.longitude ?? hos.gps_lon ?? hos.gps_lng
+      ?? st.lon ?? st.lng ?? st.longitude ?? st.gps_lon
+      ?? existing?.longitude;
+    const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed ?? hos.speed;
+    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number
+      ?? hos.vehicle_number ?? hos.truck_number ?? hos.number
+      ?? st.truck_number ?? st.vehicle_number
+      ?? d.truck_number ?? existing?.truck_number;
+    const rawLocation = v.calc_location ?? v.location ?? v.address
+      ?? hos.calculated_location ?? hos.location ?? hos.address ?? hos.current_location
+      ?? st.calc_location ?? st.location ?? st.calc_loc
+      ?? existing?.location_string;
 
     const driverData = {
       user_id:          user.id,
