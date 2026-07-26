@@ -256,7 +256,7 @@ function parseInspField(insp, ...keys) {
   return null;
 }
 
-async function saveAndNotifyInspection(bot, user, insp, externalId) {
+async function saveAndNotifyInspection(bot, user, insp, externalId, isFirstSeed = false) {
   const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
   if (existing) return;
 
@@ -270,27 +270,23 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
   const violations = parseInt(parseInspField(insp, 'violations', 'violation_count', 'violationCount') || 0, 10);
   const result = parseInspField(insp, 'result', 'outcome', 'inspection_result', 'inspectionResult') || '';
 
-  // Only alert for records created/dated within the last 3 days — older ones saved silently to history
-  const refDate = rawDate ? new Date(rawDate) : null;
-  const isRecent = refDate && (Date.now() - refDate.getTime()) < 3 * 24 * 60 * 60 * 1000;
-
   const record = await Inspection.create({
     user_id:         user.id,
     driver_id:       driverId,
     driver_name:     driverName,
     external_id:     externalId,
-    inspection_date: refDate,
+    inspection_date: rawDate ? new Date(rawDate) : null,
     report_number:   reportNum,
     level,
     violations,
     result,
     details:         JSON.stringify(insp),
-    notified:        !isRecent,
+    notified:        isFirstSeed,
     created_at:      new Date(),
   });
 
-  if (!isRecent) {
-    logger.info(`DOT inspection saved silently (old record) for user ${user.id}: ${externalId}`);
+  if (isFirstSeed) {
+    logger.info(`DOT inspection seeded silently for user ${user.id}: ${externalId}`);
     return;
   }
 
@@ -325,7 +321,7 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
   logger.info(`DOT inspection alert sent to user ${user.id}: ${externalId}`);
 }
 
-async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId) {
+async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId, isFirstSeed = false) {
   const existing = await Inspection.findOne({ where: { user_id: user.id, external_id: externalId } });
   if (existing) return;
 
@@ -336,27 +332,23 @@ async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId) {
     ? new Date(log.end_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
     : '';
 
-  // Only alert for transfers created within the last 3 days — older ones saved silently to history
-  const refDate = log.created_at ? new Date(log.created_at) : null;
-  const isRecent = refDate && (Date.now() - refDate.getTime()) < 3 * 24 * 60 * 60 * 1000;
-
   const record = await Inspection.create({
     user_id:         user.id,
     driver_id:       log.driver_id || '',
     driver_name:     log.driver_name || 'Unknown Driver',
     external_id:     externalId,
-    inspection_date: refDate,
+    inspection_date: log.created_at ? new Date(log.created_at) : null,
     report_number:   log.comment || '',
     level:           '',
     violations:      0,
     result:          log.file_status || '',
     details:         JSON.stringify(log),
-    notified:        !isRecent,
+    notified:        isFirstSeed,
     created_at:      new Date(),
   });
 
-  if (!isRecent) {
-    logger.info(`FMCSA transfer saved silently (old record) for user ${user.id}: ${externalId}`);
+  if (isFirstSeed) {
+    logger.info(`FMCSA transfer seeded silently for user ${user.id}: ${externalId}`);
     return;
   }
 
@@ -385,6 +377,13 @@ async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId) {
 async function checkNewInspections(bot) {
   const users = await User.findAll({ where: { company_api_key: { [Op.ne]: null } } });
 
+  // Pre-compute which users have no saved records yet — those get seeded silently on first run
+  const firstSeedSet = new Set();
+  for (const user of users) {
+    const count = await Inspection.count({ where: { user_id: user.id } });
+    if (count === 0) firstSeedSet.add(user.id);
+  }
+
   // ── FMCSA transfers via Leader ELD session token ────────────────────────────
   const sessionToken = process.env.LEADER_SESSION_TOKEN;
   const tenantId = process.env.LEADER_TENANT_ID;
@@ -403,7 +402,7 @@ async function checkNewInspections(bot) {
           u.company_name && u.company_name.toLowerCase().trim() === companyName
         );
         if (!matchedUser) continue;
-        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId);
+        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId, firstSeedSet.has(matchedUser.id));
       }
     } catch (err) {
       logger.warn('Leader FMCSA transfer check failed:', err.message);
@@ -428,7 +427,7 @@ async function checkNewInspections(bot) {
           u.company_name && u.company_name.toLowerCase().trim() === companyName
         );
         if (!matchedUser) continue;
-        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId);
+        await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId, firstSeedSet.has(matchedUser.id));
       }
     } catch (err) {
       logger.warn('Factor FMCSA transfer check failed:', err.message);
@@ -444,7 +443,7 @@ async function checkNewInspections(bot) {
           parseInspField(insp, 'inspection_id', 'inspectionId', 'id', 'dot_inspection_id', 'dotInspectionId') || ''
         );
         if (!externalId) continue;
-        await saveAndNotifyInspection(bot, user, insp, `dot-${externalId}`);
+        await saveAndNotifyInspection(bot, user, insp, `dot-${externalId}`, firstSeedSet.has(user.id));
       }
     } catch (err) {
       logger.warn(`Inspection check failed for user ${user.id}:`, err.message);
