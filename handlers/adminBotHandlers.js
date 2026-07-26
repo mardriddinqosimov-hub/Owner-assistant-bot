@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const Order = require('../models/Order');
 const User  = require('../models/User');
 const Driver = require('../models/Driver');
+const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
 const { getMainBot } = require('../services/notificationService');
 const PDFDocument = require('pdfkit');
@@ -388,6 +389,7 @@ const haDeleteUser = async (ctx) => {
     const name = u ? userName(u) : `User #${userId}`;
     if (u) {
       await Driver.destroy({ where: { user_id: u.id } });
+      await Inspection.destroy({ where: { user_id: u.id } });
       await u.update({
         deleted_at:      new Date(),
         company_api_key: null,

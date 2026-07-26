@@ -1164,6 +1164,11 @@ const selectPlatform = async (ctx) => {
     let user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.editMessageText('Please /start first.');
 
+    // Wipe old inspection records when switching to a different company
+    if (user.company_api_key && user.company_api_key !== apiKey) {
+      await Inspection.destroy({ where: { user_id: user.id } });
+    }
+
     await user.update({ company_api_key: apiKey, company_name: companyName, platform });
     user = await User.findOne({ where: { telegram_id: ctx.from.id } });
 

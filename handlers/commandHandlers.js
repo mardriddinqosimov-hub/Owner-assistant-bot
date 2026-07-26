@@ -205,6 +205,12 @@ const setapi = async (ctx) => {
     const info = await fetchCompanyInfo(args);
     const companyName = info?.name || info?.company_name || null;
 
+    // If switching to a different company, wipe old inspection records so history doesn't bleed across companies
+    if (user.company_api_key && user.company_api_key !== args) {
+      await Inspection.destroy({ where: { user_id: user.id } });
+      logger.info(`setapi: cleared inspections for user ${user.id} (company switch)`);
+    }
+
     if (platform) {
       // Platform was specified in the command — finish immediately
       const updateData = { company_api_key: args, company_name: companyName, platform };
