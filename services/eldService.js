@@ -75,7 +75,7 @@ async function fetchHosList(companyKey) {
     const headers = { 'X-API-Provider-Key': PROVIDER_KEY };
     if (companyKey) headers['X-API-Company-Key'] = companyKey;
     const client = axios.create({ baseURL: API_V1_BASE, headers, timeout: 15000 });
-    const res = await client.get('/hos/list', { params: { limit: 1000, driver_status: 'active' } });
+    const res = await client.get('/hos/list', { params: { limit: 1000 } });
     const drivers = res.data?.data?.drivers ?? [];
     return Array.isArray(drivers) ? drivers : [];
   } catch (err) {

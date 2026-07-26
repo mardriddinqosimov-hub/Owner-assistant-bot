@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
 const notifService = require('../services/notificationService');
 const menuTracker = require('../utils/menuTracker');
 const { sendMainMenu } = require('../utils/mainMenu');
@@ -46,10 +46,11 @@ function mapStatus(code) {
 }
 
 async function syncDrivers(user, companyKey, prefetchedDrivers) {
-  const [driversRaw, statusRaw, vehicleRaw] = await Promise.all([
+  const [driversRaw, statusRaw, vehicleRaw, hosRaw] = await Promise.all([
     prefetchedDrivers ? Promise.resolve(prefetchedDrivers) : fetchDrivers(companyKey),
     fetchDriverStatus(companyKey),
     fetchVehicleStatus(companyKey),
+    fetchHosList(companyKey),
   ]);
 
   // Only active drivers
@@ -68,23 +69,29 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     if (vid) vehicleByVehicleId[String(vid)] = v;
   }
 
+  const hosByDriverId = {};
+  for (const h of hosRaw) {
+    if (h.driver_id) hosByDriverId[String(h.driver_id)] = h;
+  }
+
   const activeIds = [];
   for (const d of activeDrivers) {
     const dId = String(d.driver_id || d.id);
     activeIds.push(dId);
     const name = `${d.first_name || ''} ${d.last_name || ''}`.trim() || d.name || d.driver_name || d.username || 'Unknown';
     const st = statusMap[dId] || {};
+    const hos = hosByDriverId[dId] || {};
     // Try direct driver match first, then cross-ref via vehicle_id on status record
     const v = vehicleByDriverId[dId]
       || (st.vehicle_id ? vehicleByVehicleId[String(st.vehicle_id)] : null)
       || {};
 
-    // Fallback to status record fields if vehicle record is empty
-    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? st.lat ?? st.latitude;
-    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? st.lon ?? st.lng ?? st.longitude;
+    // hos fallback covers Factor ELD OFF/SB drivers whose vehicles drop off latest-vehicle-status
+    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? hos.lat ?? st.lat ?? st.latitude;
+    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? hos.lon ?? st.lon ?? st.lng ?? st.longitude;
     const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed;
-    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number;
-    const rawLocation = v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
+    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? hos.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number;
+    const rawLocation = v.calc_location ?? v.location ?? v.address ?? hos.calculated_location ?? st.calc_location ?? st.location;
 
     const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
 
