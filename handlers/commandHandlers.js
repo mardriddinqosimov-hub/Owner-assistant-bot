@@ -86,14 +86,13 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       || (st.vehicle_id ? vehicleByVehicleId[String(st.vehicle_id)] : null)
       || {};
 
-    // hos fallback covers Factor ELD OFF/SB drivers whose vehicles drop off latest-vehicle-status
-    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? hos.lat ?? st.lat ?? st.latitude;
-    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? hos.lon ?? st.lon ?? st.lng ?? st.longitude;
-    const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed;
-    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? hos.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number;
-    const rawLocation = v.calc_location ?? v.location ?? v.address ?? hos.calculated_location ?? st.calc_location ?? st.location;
-
     const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
+
+    const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? hos.lat ?? st.lat ?? st.latitude ?? existing?.latitude;
+    const rawLon = v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? hos.lon ?? st.lon ?? st.lng ?? st.longitude ?? existing?.longitude;
+    const rawSpeed = v.speed ?? v.current_speed ?? st.speed ?? st.current_speed;
+    const rawTruck = v.number ?? v.truck_number ?? v.vehicle_number ?? hos.vehicle_number ?? st.truck_number ?? st.vehicle_number ?? d.truck_number ?? existing?.truck_number;
+    const rawLocation = v.calc_location ?? v.location ?? v.address ?? hos.calculated_location ?? st.calc_location ?? st.location ?? existing?.location_string;
 
     const driverData = {
       user_id:          user.id,
@@ -102,7 +101,6 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       truck_number:     rawTruck || null,
       eld_provider:     user.company_name || 'ELD',
       current_status:   mapStatus(st.current_status ?? st.duty_status ?? st.status ?? st.hos_status ?? st.driver_status),
-      // Never use cached GPS — stale coordinates are worse than no coordinates
       speed:            rawSpeed ?? null,
       latitude:         rawLat ? parseFloat(rawLat) : null,
       longitude:        rawLon ? parseFloat(rawLon) : null,
