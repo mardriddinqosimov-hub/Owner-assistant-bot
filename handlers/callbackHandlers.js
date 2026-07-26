@@ -1103,7 +1103,8 @@ const dotMenu = async (ctx) => {
           inline_keyboard: [
             ...inspections.map(i => {
               const icon = i.violations > 0 ? '⚠️' : '✅';
-              return [{ text: `${icon} ${formatDate(i.inspection_date)} — ${i.driver_name} — Level ${i.level}`, callback_data: `dot_detail_${i.id}` }];
+              const label = i.level ? `Level ${i.level}` : i.result || 'FMCSA Transfer';
+              return [{ text: `${icon} ${formatDate(i.inspection_date)} — ${i.driver_name} — ${label}`, callback_data: `dot_detail_${i.id}` }];
             }),
             [{ text: '◀️ Back', callback_data: 'main_menu' }],
           ],
