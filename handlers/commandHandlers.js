@@ -270,20 +270,29 @@ async function saveAndNotifyInspection(bot, user, insp, externalId) {
   const violations = parseInt(parseInspField(insp, 'violations', 'violation_count', 'violationCount') || 0, 10);
   const result = parseInspField(insp, 'result', 'outcome', 'inspection_result', 'inspectionResult') || '';
 
+  // Only alert for records created/dated within the last 3 days — older ones saved silently to history
+  const refDate = rawDate ? new Date(rawDate) : null;
+  const isRecent = refDate && (Date.now() - refDate.getTime()) < 3 * 24 * 60 * 60 * 1000;
+
   const record = await Inspection.create({
     user_id:         user.id,
     driver_id:       driverId,
     driver_name:     driverName,
     external_id:     externalId,
-    inspection_date: rawDate ? new Date(rawDate) : null,
+    inspection_date: refDate,
     report_number:   reportNum,
     level,
     violations,
     result,
     details:         JSON.stringify(insp),
-    notified:        false,
+    notified:        !isRecent,
     created_at:      new Date(),
   });
+
+  if (!isRecent) {
+    logger.info(`DOT inspection saved silently (old record) for user ${user.id}: ${externalId}`);
+    return;
+  }
 
   const v = record.violations;
   const dateStr = record.inspection_date
@@ -327,20 +336,29 @@ async function saveAndNotifyFmcsaTransfer(bot, user, log, externalId) {
     ? new Date(log.end_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
     : '';
 
+  // Only alert for transfers created within the last 3 days — older ones saved silently to history
+  const refDate = log.created_at ? new Date(log.created_at) : null;
+  const isRecent = refDate && (Date.now() - refDate.getTime()) < 3 * 24 * 60 * 60 * 1000;
+
   const record = await Inspection.create({
     user_id:         user.id,
     driver_id:       log.driver_id || '',
     driver_name:     log.driver_name || 'Unknown Driver',
     external_id:     externalId,
-    inspection_date: log.created_at ? new Date(log.created_at) : null,
+    inspection_date: refDate,
     report_number:   log.comment || '',
     level:           '',
     violations:      0,
     result:          log.file_status || '',
     details:         JSON.stringify(log),
-    notified:        false,
+    notified:        !isRecent,
     created_at:      new Date(),
   });
+
+  if (!isRecent) {
+    logger.info(`FMCSA transfer saved silently (old record) for user ${user.id}: ${externalId}`);
+    return;
+  }
 
   const oldMsgId = menuTracker.get(user.telegram_id);
   if (oldMsgId) {
