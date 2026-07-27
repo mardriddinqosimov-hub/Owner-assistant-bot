@@ -50,13 +50,23 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
   const factorTenantId = process.env.FACTOR_TENANT_ID;
   const isFactorUser = user.platform === 'factor';
 
+  const fetchHos = async () => {
+    if (isFactorUser && factorToken && factorTenantId) {
+      return fetchFactorHosList(factorToken, factorTenantId);
+    }
+    const result = await fetchHosList(companyKey);
+    if (result === null && factorToken && factorTenantId) {
+      logger.info('syncDrivers: Partner API HOS returned 401, falling back to Factor Portal API');
+      return fetchFactorHosList(factorToken, factorTenantId);
+    }
+    return result ?? [];
+  };
+
   const [driversRaw, statusRaw, vehicleRaw, hosRaw] = await Promise.all([
     prefetchedDrivers ? Promise.resolve(prefetchedDrivers) : fetchDrivers(companyKey),
     fetchDriverStatus(companyKey),
     fetchVehicleStatus(companyKey),
-    isFactorUser && factorToken && factorTenantId
-      ? fetchFactorHosList(factorToken, factorTenantId)
-      : fetchHosList(companyKey),
+    fetchHos(),
   ]);
 
   // Only active drivers

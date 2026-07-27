@@ -98,8 +98,9 @@ async function fetchHosList(companyKey) {
     const drivers = res.data?.data?.drivers ?? [];
     return Array.isArray(drivers) ? drivers : [];
   } catch (err) {
-    logger.warn('fetchHosList failed: ' + (err.response?.status || err.message));
-    return [];
+    const status = err.response?.status;
+    logger.warn('fetchHosList failed: ' + (status || err.message));
+    return status === 401 ? null : [];
   }
 }
 
