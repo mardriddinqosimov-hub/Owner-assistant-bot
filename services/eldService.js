@@ -108,8 +108,9 @@ async function fetchHosList(companyKey) {
 async function fetchFactorHosList(sessionToken, tenantId) {
   const candidates = [
     `${API_V1_BASE}/hos/list`,
-    `${API_V1_BASE}/driver/list`,
+    `${API_V1_BASE}/hos`,
     `${API_V1_BASE}/drivers`,
+    `${API_V1_BASE}/driver`,
   ];
   const headers = {
     'Authorization': `Bearer ${sessionToken}`,

@@ -56,7 +56,11 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     }
     const result = await fetchHosList(companyKey);
     if (result === null && factorToken && factorTenantId) {
-      logger.info('syncDrivers: Partner API HOS returned 401, falling back to Factor Portal API');
+      // Partner API rejected this company key — mark as Factor in DB so future cycles skip correctly
+      if (user.platform !== 'factor') {
+        await user.update({ platform: 'factor' }).catch(() => {});
+        logger.info(`syncDrivers: auto-set platform=factor for user ${user.id}`);
+      }
       return fetchFactorHosList(factorToken, factorTenantId);
     }
     return result ?? [];
