@@ -9,7 +9,7 @@ const WithdrawalRequest = require('../models/WithdrawalRequest');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers } = require('./commandHandlers');
-const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, formatSeconds } = require('../services/eldService');
+const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, formatSeconds } = require('../services/eldService');
 
 // ─── Driver Status Groups ────────────────────────────────────────────────────
 
@@ -225,14 +225,24 @@ const driverRefresh = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user || !user.company_api_key) return ctx.reply('Please /start first.');
 
+    const factorToken = process.env.FACTOR_SESSION_TOKEN;
+    const factorTenantId = process.env.FACTOR_TENANT_ID;
+    const fetchHos = async () => {
+      const result = await fetchHosList(user.company_api_key);
+      if (result === null && factorToken && factorTenantId) {
+        return fetchFactorHosList(factorToken, factorTenantId);
+      }
+      return result ?? [];
+    };
+
     const [statusRaw, vehicleRaw, hosListRaw] = await Promise.all([
       fetchDriverStatus(user.company_api_key),
       fetchVehicleStatus(user.company_api_key),
-      fetchHosList(user.company_api_key),
+      fetchHos(),
     ]);
 
     const st = statusRaw.find(s => String(s.driver_id) === String(driverId)) || {};
-    const hosEntry = hosListRaw.find(d => String(d.driver_id) === String(driverId)) || {};
+    const hosEntry = (hosListRaw ?? []).find(d => String(d.driver_id) === String(driverId)) || {};
 
     const v = vehicleRaw.find(r =>
       String(r.driver_id) === String(driverId) ||
