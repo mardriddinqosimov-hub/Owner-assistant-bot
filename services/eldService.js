@@ -106,31 +106,41 @@ async function fetchHosList(companyKey) {
 
 // Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
 async function fetchFactorHosList(sessionToken, tenantId) {
-  const candidates = [
-    `${API_V1_BASE}/hos/list`,
-    `${API_V1_BASE}/hos`,
-    `${API_V1_BASE}/drivers`,
-    `${API_V1_BASE}/driver`,
-  ];
   const headers = {
     'Authorization': `Bearer ${sessionToken}`,
     'Tenant_id': tenantId,
+    'company_id': tenantId,
     'Accept': 'application/json',
   };
-  for (const url of candidates) {
-    try {
-      const res = await axios.get(url, { headers, timeout: 15000, params: { limit: 1000, page: 1 } });
-      const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
-      if (Array.isArray(drivers) && drivers.length > 0) {
-        logger.info(`fetchFactorHosList: ${url} returned ${drivers.length} records`);
-        return drivers;
-      }
-    } catch (err) {
-      const status = err.response?.status;
-      const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
-      logger.warn(`fetchFactorHosList: ${url} failed — ${status || err.message} — ${body}`);
+
+  // /hos/list — primary source, requires company_id header
+  try {
+    const res = await axios.get(`${API_V1_BASE}/hos/list`, { headers, timeout: 15000, params: { limit: 1000, page: 1 } });
+    const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
+    if (Array.isArray(drivers) && drivers.length > 0) {
+      logger.info(`fetchFactorHosList: /hos/list returned ${drivers.length} records`);
+      return drivers;
     }
+  } catch (err) {
+    const status = err.response?.status;
+    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
+    logger.warn(`fetchFactorHosList: /hos/list failed — ${status || err.message} — ${body}`);
   }
+
+  // /drivers — fallback, requires status param
+  try {
+    const res = await axios.get(`${API_V1_BASE}/drivers`, { headers, timeout: 15000, params: { limit: 1000, page: 1, status: 'all' } });
+    const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
+    if (Array.isArray(drivers) && drivers.length > 0) {
+      logger.info(`fetchFactorHosList: /drivers returned ${drivers.length} records`);
+      return drivers;
+    }
+  } catch (err) {
+    const status = err.response?.status;
+    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
+    logger.warn(`fetchFactorHosList: /drivers failed — ${status || err.message} — ${body}`);
+  }
+
   return [];
 }
 
