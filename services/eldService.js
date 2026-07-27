@@ -118,14 +118,16 @@ async function fetchFactorHosList(sessionToken, tenantId) {
   };
   for (const url of candidates) {
     try {
-      const res = await axios.get(url, { headers, timeout: 15000, params: { limit: 1000 } });
+      const res = await axios.get(url, { headers, timeout: 15000, params: { limit: 1000, page: 1 } });
       const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
       if (Array.isArray(drivers) && drivers.length > 0) {
         logger.info(`fetchFactorHosList: ${url} returned ${drivers.length} records`);
         return drivers;
       }
     } catch (err) {
-      logger.warn(`fetchFactorHosList: ${url} failed — ${err.response?.status || err.message}`);
+      const status = err.response?.status;
+      const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
+      logger.warn(`fetchFactorHosList: ${url} failed — ${status || err.message} — ${body}`);
     }
   }
   return [];

@@ -445,6 +445,7 @@ async function checkNewInspections(bot) {
   // ── FMCSA transfers via Factor ELD session token ─────────────────────────────
   const factorToken = process.env.FACTOR_SESSION_TOKEN;
   const factorTenantId = process.env.FACTOR_TENANT_ID;
+  const factorMatchedUserIds = new Set();
 
   if (factorToken && factorTenantId) {
     try {
@@ -455,11 +456,12 @@ async function checkNewInspections(bot) {
         if (!log.id) continue;
         const externalId = `fmcsa-factor-${log.id}`;
         const companyName = (log.company_name || '').toLowerCase().trim();
+        // Match by company name — no platform filter so null-platform Factor users are covered
         const matchedUser = users.find(u =>
-          u.platform === 'factor' &&
           u.company_name && u.company_name.toLowerCase().trim() === companyName
         );
         if (!matchedUser) continue;
+        factorMatchedUserIds.add(matchedUser.id);
         await saveAndNotifyFmcsaTransfer(bot, matchedUser, log, externalId, firstSeedSet.has(matchedUser.id));
       }
     } catch (err) {
@@ -469,7 +471,8 @@ async function checkNewInspections(bot) {
 
   // ── Legacy per-user inspection check (Leader ELD only) ─────────────────────
   for (const user of users) {
-    if (user.platform === 'factor') continue; // Factor uses FMCSA transfers above
+    // Skip Factor users — they get inspections via FMCSA transfers above
+    if (user.platform === 'factor' || factorMatchedUserIds.has(user.id)) continue;
     try {
       const inspections = await fetchInspections(user.company_api_key);
       for (const insp of inspections) {
