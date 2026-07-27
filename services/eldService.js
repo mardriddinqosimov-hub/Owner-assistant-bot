@@ -104,16 +104,59 @@ async function fetchHosList(companyKey) {
   }
 }
 
-// Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
-async function fetchFactorHosList(sessionToken, tenantId) {
-  const headers = {
+// Discover the real numeric company_id from the Factor Portal API
+async function fetchFactorCompanyId(sessionToken, tenantId) {
+  const baseHeaders = {
     'Authorization': `Bearer ${sessionToken}`,
     'Tenant_id': tenantId,
-    'company_id': tenantId,
+    'Accept': 'application/json',
+  };
+  const candidates = [
+    `${API_V1_BASE}/company`,
+    `${API_V1_BASE}/companies`,
+    `${API_V1_BASE}/me`,
+    `${API_V1_BASE}/auth/me`,
+    `${API_V1_BASE}/user/me`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await axios.get(url, { headers: baseHeaders, timeout: 10000 });
+      const d = res.data?.data ?? res.data;
+      const id = d?.company_id ?? d?.company?.id ?? d?.id ?? d?.companies?.[0]?.id ?? d?.data?.[0]?.id;
+      if (id) {
+        logger.info(`fetchFactorCompanyId: got company_id=${id} from ${url}`);
+        return String(id);
+      }
+      const body = JSON.stringify(res.data ?? '').slice(0, 300);
+      logger.info(`fetchFactorCompanyId: ${url} returned no id — ${body}`);
+    } catch (err) {
+      const status = err.response?.status;
+      const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
+      logger.info(`fetchFactorCompanyId: ${url} failed — ${status || err.message} — ${body}`);
+    }
+  }
+  return null;
+}
+
+// Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
+async function fetchFactorHosList(sessionToken, tenantId) {
+  const baseHeaders = {
+    'Authorization': `Bearer ${sessionToken}`,
+    'Tenant_id': tenantId,
     'Accept': 'application/json',
   };
 
-  // /hos/list — primary source, requires company_id header
+  // Discover the real company_id — may differ from tenantId
+  const companyId = await fetchFactorCompanyId(sessionToken, tenantId);
+  const headers = companyId
+    ? { ...baseHeaders, 'company_id': companyId }
+    : baseHeaders;
+
+  if (!companyId) {
+    logger.warn('fetchFactorHosList: could not discover company_id, proceeding without it');
+  }
+
+  // /hos/list — primary source
   try {
     const res = await axios.get(`${API_V1_BASE}/hos/list`, { headers, timeout: 15000, params: { limit: 1000, page: 1 } });
     const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
@@ -121,13 +164,14 @@ async function fetchFactorHosList(sessionToken, tenantId) {
       logger.info(`fetchFactorHosList: /hos/list returned ${drivers.length} records`);
       return drivers;
     }
+    logger.info(`fetchFactorHosList: /hos/list returned 0 records — ${JSON.stringify(res.data ?? '').slice(0, 200)}`);
   } catch (err) {
     const status = err.response?.status;
     const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
     logger.warn(`fetchFactorHosList: /hos/list failed — ${status || err.message} — ${body}`);
   }
 
-  // /drivers — fallback, requires status param
+  // /drivers — fallback
   try {
     const res = await axios.get(`${API_V1_BASE}/drivers`, { headers, timeout: 15000, params: { limit: 1000, page: 1, status: 'all' } });
     const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
