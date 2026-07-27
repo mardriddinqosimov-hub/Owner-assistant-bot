@@ -351,10 +351,10 @@ function startGpsPolling() {
 
 // ─── DOT inspection polling (every 10 min) ────────────────────────────────────
 function startInspectionPolling() {
-  const INTERVAL = 10 * 60 * 1000;
+  const INTERVAL = 90 * 1000;
   const run = () => commandHandlers.checkNewInspections(bot).catch(e => logger.warn('Inspection poll error:', e.message));
   setInterval(run, INTERVAL);
-  logger.info('✅ DOT inspection polling started (10 min interval)');
+  logger.info('✅ DOT inspection polling started (90 sec interval)');
 }
 
 async function startBot() {
