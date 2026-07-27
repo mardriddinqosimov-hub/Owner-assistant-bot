@@ -3,7 +3,7 @@ const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
 const logger = require('../utils/logger');
-const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
+const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
 const notifService = require('../services/notificationService');
 const menuTracker = require('../utils/menuTracker');
 const { sendMainMenu } = require('../utils/mainMenu');
@@ -46,11 +46,17 @@ function mapStatus(code) {
 }
 
 async function syncDrivers(user, companyKey, prefetchedDrivers) {
+  const factorToken = process.env.FACTOR_SESSION_TOKEN;
+  const factorTenantId = process.env.FACTOR_TENANT_ID;
+  const isFactorUser = user.platform === 'factor';
+
   const [driversRaw, statusRaw, vehicleRaw, hosRaw] = await Promise.all([
     prefetchedDrivers ? Promise.resolve(prefetchedDrivers) : fetchDrivers(companyKey),
     fetchDriverStatus(companyKey),
     fetchVehicleStatus(companyKey),
-    fetchHosList(companyKey),
+    isFactorUser && factorToken && factorTenantId
+      ? fetchFactorHosList(factorToken, factorTenantId)
+      : fetchHosList(companyKey),
   ]);
 
   // Only active drivers
@@ -451,8 +457,9 @@ async function checkNewInspections(bot) {
     }
   }
 
-  // ── Legacy per-user inspection check (fallback) ─────────────────────────────
+  // ── Legacy per-user inspection check (Leader ELD only) ─────────────────────
   for (const user of users) {
+    if (user.platform === 'factor') continue; // Factor uses FMCSA transfers above
     try {
       const inspections = await fetchInspections(user.company_api_key);
       for (const insp of inspections) {

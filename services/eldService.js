@@ -89,8 +89,6 @@ async function fetchVehicleStatus(companyKey) {
   });
 }
 
-// Fetches the HOS list from the portal API — includes lat, lon, calculated_location,
-// vehicle_number, current_status, and HOS values in milliseconds.
 async function fetchHosList(companyKey) {
   try {
     const headers = { 'X-API-Provider-Key': PROVIDER_KEY };
@@ -103,6 +101,33 @@ async function fetchHosList(companyKey) {
     logger.warn('fetchHosList failed: ' + (err.response?.status || err.message));
     return [];
   }
+}
+
+// Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
+async function fetchFactorHosList(sessionToken, tenantId) {
+  const candidates = [
+    `${API_V1_BASE}/hos/list`,
+    `${API_V1_BASE}/driver/list`,
+    `${API_V1_BASE}/drivers`,
+  ];
+  const headers = {
+    'Authorization': `Bearer ${sessionToken}`,
+    'Tenant_id': tenantId,
+    'Accept': 'application/json',
+  };
+  for (const url of candidates) {
+    try {
+      const res = await axios.get(url, { headers, timeout: 15000, params: { limit: 1000 } });
+      const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
+      if (Array.isArray(drivers) && drivers.length > 0) {
+        logger.info(`fetchFactorHosList: ${url} returned ${drivers.length} records`);
+        return drivers;
+      }
+    } catch (err) {
+      logger.warn(`fetchFactorHosList: ${url} failed — ${err.response?.status || err.message}`);
+    }
+  }
+  return [];
 }
 
 async function fetchCompanyInfo(companyKey) {
@@ -219,4 +244,4 @@ async function fetchDriverLogEvents(companyKey, daysBack = 2) {
   }
 }
 
-module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers, fetchDriverLogEvents, formatSeconds, reverseGeocode };
+module.exports = { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers, fetchDriverLogEvents, formatSeconds, reverseGeocode };
