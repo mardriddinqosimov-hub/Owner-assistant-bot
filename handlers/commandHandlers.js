@@ -56,10 +56,10 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     }
     const result = await fetchHosList(companyKey);
     if (result === null && factorToken && factorTenantId) {
-      // Partner API rejected this company key — mark as Factor in DB so future cycles skip correctly
-      if (user.platform !== 'factor') {
+      // Only auto-set platform if user never explicitly chose one
+      if (!user.platform) {
         await user.update({ platform: 'factor' }).catch(() => {});
-        logger.info(`syncDrivers: auto-set platform=factor for user ${user.id}`);
+        logger.info(`syncDrivers: auto-set platform=factor for user ${user.id} (was unset)`);
       }
       return fetchFactorHosList(factorToken, factorTenantId);
     }
@@ -218,8 +218,6 @@ const start = async (ctx) => {
 
 const setapi = async (ctx) => {
   const rawArgs = ctx.message.text.split(' ').slice(1).join('').trim();
-  const platformMatch = rawArgs.match(/^(leader|factor)\s*[:_\-]\s*/i);
-  const platform = platformMatch ? platformMatch[1].toLowerCase() : null;
   const args = rawArgs.replace(/^(leader|factor)\s*[:_\-]\s*/i, '').trim();
 
   if (!args) {
@@ -232,50 +230,31 @@ const setapi = async (ctx) => {
   await ctx.reply('🔄 Connecting to ELD...');
 
   try {
-    const driversRaw = await fetchDrivers(args);
-    const info = await fetchCompanyInfo(args);
+    const [driversRaw, info, hosResult] = await Promise.all([
+      fetchDrivers(args),
+      fetchCompanyInfo(args),
+      fetchHosList(args),
+    ]);
     const companyName = info?.name || info?.company_name || null;
 
-    // If switching to a different company, wipe old inspection records so history doesn't bleed across companies
+    // Auto-detect platform: null from fetchHosList means 401 → Factor ELD; array means Leader ELD
+    const platform = hosResult === null ? 'factor' : 'leader';
+    logger.info(`setapi: auto-detected platform=${platform} for user ${ctx.from.id} (hosResult=${hosResult === null ? 'null(401)' : 'array'})`);
+
     if (user.company_api_key && user.company_api_key !== args) {
       await Inspection.destroy({ where: { user_id: user.id } });
       logger.info(`setapi: cleared inspections for user ${user.id} (company switch)`);
     }
 
-    if (platform) {
-      // Platform was specified in the command — finish immediately
-      const updateData = { company_api_key: args, company_name: companyName, platform };
-      await user.update(updateData);
-      user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    await user.update({ company_api_key: args, company_name: companyName, platform });
+    user = await User.findOne({ where: { telegram_id: ctx.from.id } });
 
-      logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
-      await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
-      const count = await syncDrivers(user, args, driversRaw);
-      await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.`, {
-        reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
-      });
-    } else {
-      // No platform prefix — ask user to pick
-      const { pendingApiSessions } = require('./callbackHandlers');
-      pendingApiSessions.set(ctx.from.id, { apiKey: args, companyName, driversRaw });
-
-      await ctx.reply(
-        `✅ Connected${companyName ? ` to <b>${companyName}</b>` : ''}!\n\n` +
-        `Which ELD platform is this company on?\n\n` +
-        `This determines your <b>Zelle payment recipient</b>.`,
-        {
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: 'Leader ELD', callback_data: 'platform_select_leader' },
-                { text: 'Factor ELD', callback_data: 'platform_select_factor' },
-              ],
-            ],
-          },
-        }
-      );
-    }
+    logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
+    await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
+    const count = await syncDrivers(user, args, driversRaw);
+    await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.`, {
+      reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
+    });
   } catch (err) {
     logger.error('setapi error:', err.message);
     await ctx.reply(

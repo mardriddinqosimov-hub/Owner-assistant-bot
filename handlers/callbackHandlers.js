@@ -230,7 +230,7 @@ const driverRefresh = async (ctx) => {
     const fetchHos = async () => {
       const result = await fetchHosList(user.company_api_key);
       if (result === null && factorToken && factorTenantId) {
-        if (user.platform !== 'factor') {
+        if (!user.platform) {
           await user.update({ platform: 'factor' }).catch(() => {});
         }
         return fetchFactorHosList(factorToken, factorTenantId);

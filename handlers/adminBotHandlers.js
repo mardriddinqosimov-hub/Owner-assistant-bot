@@ -37,6 +37,7 @@ const MAIN_KB = {
     [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
     [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
     [{ text: '📄 Report',      callback_data: 'ha_report' }],
+    [{ text: '🔍 Fix Platforms', callback_data: 'ha_fix_platforms' }],
   ],
 };
 
@@ -295,6 +296,12 @@ const haUserDetail = async (ctx) => {
       { text: `${u.role === 'safety'  ? '✅' : ''} Safety`,  callback_data: `ha_role_${userId}_safety` },
       { text: `${u.role === 'unknown' ? '✅' : ''} Unknown`, callback_data: `ha_role_${userId}_unknown` },
     ]);
+    // Platform buttons
+    rows.push([
+      { text: `${u.platform === 'leader' ? '✅' : ''} Leader ELD`, callback_data: `ha_plat_${userId}_leader` },
+      { text: `${u.platform === 'factor' ? '✅' : ''} Factor ELD`, callback_data: `ha_plat_${userId}_factor` },
+      { text: `${!u.platform ? '✅' : ''} Clear`,                  callback_data: `ha_plat_${userId}_clear` },
+    ]);
     // Assign block
     rows.push([{ text: `🏷 Assign Block${u.block ? ` (${blockShort(u.block)})` : ''}`, callback_data: `ha_assign_block_${userId}` }]);
     // Block/unblock
@@ -325,6 +332,68 @@ const haSetRole = async (ctx) => {
     await haUserDetail(ctx);
   } catch (err) {
     logger.error('haSetRole error:', err);
+  }
+};
+
+// ─── Set Platform ────────────────────────────────────────────────────────────
+
+const haSetPlatform = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = parseInt(ctx.match[1], 10);
+    const plat   = ctx.match[2]; // 'leader' | 'factor' | 'clear'
+    await User.update({ platform: plat === 'clear' ? null : plat }, { where: { id: userId } });
+    ctx.match[1] = String(userId);
+    await haUserDetail(ctx);
+  } catch (err) {
+    logger.error('haSetPlatform error:', err);
+  }
+};
+
+// ─── Fix Platforms (bulk re-detect) ──────────────────────────────────────────
+
+const haFixPlatforms = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const { fetchHosList } = require('../services/eldService');
+
+    await ctx.editMessageText(
+      '🔍 <b>Fixing platforms...</b>\n\nTesting every connected company. This may take a moment.',
+      { parse_mode: 'HTML' }
+    );
+
+    const users = await User.findAll({
+      where: { company_api_key: { [Op.not]: null } },
+    });
+
+    let fixed = 0, alreadyOk = 0, failed = 0;
+    const fixedNames = [];
+
+    for (const u of users) {
+      try {
+        const hosResult = await fetchHosList(u.company_api_key);
+        const detected = hosResult === null ? 'factor' : 'leader';
+        if (u.platform !== detected) {
+          await u.update({ platform: detected });
+          fixedNames.push(`• ${u.first_name || u.username || u.telegram_id} — ${u.company_name || '?'}: ${u.platform || '—'} → ${detected}`);
+          fixed++;
+        } else {
+          alreadyOk++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+
+    const lines = [`✅ <b>Platform fix complete</b>\n`, `Fixed: ${fixed}  |  Already correct: ${alreadyOk}  |  Failed: ${failed}`];
+    if (fixedNames.length) lines.push('\n' + fixedNames.join('\n'));
+
+    await ctx.editMessageText(lines.join('\n'), {
+      parse_mode: 'HTML',
+      reply_markup: BACK_KB,
+    });
+  } catch (err) {
+    logger.error('haFixPlatforms error:', err);
   }
 };
 
@@ -1299,7 +1368,7 @@ async function notifyNewOrder(bot, adminId, order) {
 module.exports = {
   haStart, haMain,
   haStats,
-  haUsersMenu, haUsers, haUserDetail, haSetRole, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
+  haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haReport, haReportAudience, haGenerateReport,

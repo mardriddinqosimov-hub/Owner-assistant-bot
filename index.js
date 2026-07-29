@@ -238,6 +238,8 @@ function setupAdminBot() {
     adminBotHandlers.haUsers(ctx, ctx.match[1], parseInt(ctx.match[2])));
   adminBot.action(/^ha_user_(\d+)$/,           adminBotHandlers.haUserDetail);
   adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
+  adminBot.action(/^ha_plat_(\d+)_([\w]+)$/,  adminBotHandlers.haSetPlatform);
+  adminBot.action('ha_fix_platforms',          adminBotHandlers.haFixPlatforms);
   adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
   adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
   adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
