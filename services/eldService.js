@@ -104,99 +104,60 @@ async function fetchHosList(companyKey) {
   }
 }
 
-// Discover the real numeric company_id from the Factor Portal API
-async function fetchFactorCompanyId(sessionToken, tenantId) {
-  const baseHeaders = {
-    'Authorization': `Bearer ${sessionToken}`,
-    'Tenant_id': tenantId,
-    'Accept': 'application/json',
-  };
-  const candidates = [
-    `${API_V1_BASE}/companies`,
-    `${API_V1_BASE}/me`,
-    `${API_V1_BASE}/auth/me`,
-    `${API_V1_BASE}/user/me`,
-  ];
-  for (const url of candidates) {
-    try {
-      const res = await axios.get(url, { headers: baseHeaders, timeout: 10000 });
-      // Log raw body so we can see exact shape
-      const rawBody = JSON.stringify(res.data ?? '').slice(0, 500);
-      logger.info(`fetchFactorCompanyId: ${url} raw — ${rawBody}`);
-      const d = res.data?.data ?? res.data;
-      const arr = Array.isArray(d) ? d : (Array.isArray(d?.companies) ? d.companies : null);
-      const single = arr ? arr[0] : d;
-      const id = single?.company_id ?? single?.id ?? single?.carrier_id ?? single?.company?.id;
-      if (id) {
-        logger.info(`fetchFactorCompanyId: extracted company_id=${id} from ${url}`);
-        return String(id);
-      }
-    } catch (err) {
-      const status = err.response?.status;
-      const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
-      logger.info(`fetchFactorCompanyId: ${url} failed — ${status || err.message} — ${body}`);
-    }
-  }
-  return null;
-}
-
 // Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
 async function fetchFactorHosList(sessionToken, tenantId) {
-  const baseHeaders = {
+  const companyId = process.env.FACTOR_COMPANY_ID;
+  const headers = {
     'Authorization': `Bearer ${sessionToken}`,
     'Tenant_id': tenantId,
+    'Company_id': companyId ?? tenantId,
     'Accept': 'application/json',
   };
 
-  const companyId = await fetchFactorCompanyId(sessionToken, tenantId);
-  if (!companyId) {
-    logger.warn('fetchFactorHosList: could not discover company_id');
-  }
-
-  // Try multiple variations of how company_id can be passed
-  const attempts = [];
-  if (companyId) {
-    // 1. company_id as header (current approach)
-    attempts.push({ headers: { ...baseHeaders, 'company_id': companyId }, params: { limit: 1000, page: 1 }, label: 'header' });
-    // 2. company_id as query param
-    attempts.push({ headers: baseHeaders, params: { limit: 1000, page: 1, company_id: companyId }, label: 'queryparam' });
-    // 3. company_id embedded in URL path
-    attempts.push({ headers: baseHeaders, params: { limit: 1000, page: 1 }, urlOverride: `${API_V1_BASE}/companies/${companyId}/hos/list`, label: 'urlpath' });
-  }
-  // 4. No company_id at all
-  attempts.push({ headers: baseHeaders, params: { limit: 1000, page: 1 }, label: 'nocompanyid' });
-
-  for (const attempt of attempts) {
-    const url = attempt.urlOverride ?? `${API_V1_BASE}/hos/list`;
-    try {
-      const res = await axios.get(url, { headers: attempt.headers, timeout: 15000, params: attempt.params });
-      const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
-      if (Array.isArray(drivers) && drivers.length > 0) {
-        logger.info(`fetchFactorHosList: /hos/list [${attempt.label}] returned ${drivers.length} records`);
-        return drivers;
-      }
-      logger.info(`fetchFactorHosList: /hos/list [${attempt.label}] returned 0 — ${JSON.stringify(res.data ?? '').slice(0, 200)}`);
-    } catch (err) {
-      const status = err.response?.status;
-      const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
-      logger.warn(`fetchFactorHosList: /hos/list [${attempt.label}] failed — ${status || err.message} — ${body}`);
-    }
-  }
-
-  // /drivers — last fallback with company_id as query param
+  // /hos/list — matches exactly what the Factor portal sends
   try {
-    const params = { limit: 1000, page: 1, status: 'all' };
-    if (companyId) params.company_id = companyId;
-    const res = await axios.get(`${API_V1_BASE}/drivers`, { headers: baseHeaders, timeout: 15000, params });
+    const res = await axios.get(`${API_V1_BASE}/hos/list`, {
+      headers,
+      timeout: 15000,
+      params: {
+        page: 1,
+        limit: 1000,
+        eld_status: 'all',
+        duty_status: 'all',
+        online_status: 'all',
+        violation_status: 'all',
+        driver_status: 'active',
+        sort_by: 'default',
+        sort_order: 'default',
+      },
+    });
+    const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
+    if (Array.isArray(drivers) && drivers.length > 0) {
+      logger.info(`fetchFactorHosList: /hos/list returned ${drivers.length} records`);
+      return drivers;
+    }
+    logger.info(`fetchFactorHosList: /hos/list returned 0 — ${JSON.stringify(res.data ?? '').slice(0, 300)}`);
+  } catch (err) {
+    const status = err.response?.status;
+    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
+    logger.warn(`fetchFactorHosList: /hos/list failed — ${status || err.message} — ${body}`);
+  }
+
+  // /drivers — fallback
+  try {
+    const res = await axios.get(`${API_V1_BASE}/drivers`, {
+      headers,
+      timeout: 15000,
+      params: { limit: 1000, page: 1, status: 'all' },
+    });
     const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
     if (Array.isArray(drivers) && drivers.length > 0) {
       logger.info(`fetchFactorHosList: /drivers returned ${drivers.length} records`);
       return drivers;
     }
-    logger.info(`fetchFactorHosList: /drivers returned 0 — ${JSON.stringify(res.data ?? '').slice(0, 200)}`);
   } catch (err) {
     const status = err.response?.status;
-    const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
+    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
     logger.warn(`fetchFactorHosList: /drivers failed — ${status || err.message} — ${body}`);
   }
 
