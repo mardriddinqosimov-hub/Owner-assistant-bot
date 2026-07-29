@@ -104,50 +104,91 @@ async function fetchHosList(companyKey) {
   }
 }
 
-// Factor ELD HOS list via Portal API (session token) — same endpoint but proper auth
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Extract UUID-format company ID from a company object
+function extractCompanyUuid(obj) {
+  for (const key of ['uuid', 'company_uuid', 'company_id', 'uid', 'guid']) {
+    if (obj[key] && UUID_RE.test(String(obj[key]))) return String(obj[key]);
+  }
+  // fallback: scan all string values for UUID format
+  for (const val of Object.values(obj)) {
+    if (typeof val === 'string' && UUID_RE.test(val)) return val;
+  }
+  return null;
+}
+
+// Factor ELD HOS list via Portal API — queries all companies dynamically
 async function fetchFactorHosList(sessionToken, tenantId) {
-  const companyId = process.env.FACTOR_COMPANY_ID;
-  const headers = {
+  const baseHeaders = {
     'Authorization': `Bearer ${sessionToken}`,
     'Tenant_id': tenantId,
-    'Company_id': companyId ?? tenantId,
     'Accept': 'application/json',
   };
 
-  // /hos/list — matches exactly what the Factor portal sends
+  // Fetch all companies this session has access to
+  let companyUuids = [];
   try {
-    const res = await axios.get(`${API_V1_BASE}/hos/list`, {
-      headers,
-      timeout: 15000,
-      params: {
-        page: 1,
-        limit: 1000,
-        eld_status: 'all',
-        duty_status: 'all',
-        online_status: 'all',
-        violation_status: 'all',
-        driver_status: 'active',
-        sort_by: 'default',
-        sort_order: 'default',
-      },
+    const res = await axios.get(`${API_V1_BASE}/companies`, {
+      headers: baseHeaders,
+      timeout: 10000,
+      params: { limit: 100, page: 1, status: 'active' },
     });
-    const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
-    if (Array.isArray(drivers) && drivers.length > 0) {
-      logger.info(`fetchFactorHosList: /hos/list returned ${drivers.length} records`);
-      return drivers;
+    const raw = JSON.stringify(res.data ?? '').slice(0, 800);
+    logger.info(`fetchFactorHosList: /companies raw — ${raw}`);
+    const list = res.data?.data ?? res.data?.companies ?? res.data;
+    const arr = Array.isArray(list) ? list : (Array.isArray(list?.data) ? list.data : []);
+    for (const c of arr) {
+      const uuid = extractCompanyUuid(c);
+      if (uuid) companyUuids.push(uuid);
     }
-    logger.info(`fetchFactorHosList: /hos/list returned 0 — ${JSON.stringify(res.data ?? '').slice(0, 300)}`);
+    logger.info(`fetchFactorHosList: found ${companyUuids.length} company UUIDs — ${companyUuids.join(', ')}`);
   } catch (err) {
     const status = err.response?.status;
-    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
-    logger.warn(`fetchFactorHosList: /hos/list failed — ${status || err.message} — ${body}`);
+    logger.warn(`fetchFactorHosList: /companies failed — ${status || err.message}`);
   }
 
-  // /drivers — fallback
+  // If discovery failed, fall back to env var or tenantId
+  if (companyUuids.length === 0) {
+    const fallback = process.env.FACTOR_COMPANY_ID ?? tenantId;
+    logger.warn(`fetchFactorHosList: no UUIDs found, falling back to ${fallback}`);
+    companyUuids = [fallback];
+  }
+
+  const allDrivers = [];
+  const hosParams = {
+    page: 1, limit: 1000,
+    eld_status: 'all', duty_status: 'all',
+    online_status: 'all', violation_status: 'all',
+    driver_status: 'active',
+    sort_by: 'default', sort_order: 'default',
+  };
+
+  for (const uuid of companyUuids) {
+    const headers = { ...baseHeaders, 'Company_id': uuid };
+    try {
+      const res = await axios.get(`${API_V1_BASE}/hos/list`, { headers, timeout: 15000, params: hosParams });
+      const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
+      if (Array.isArray(drivers) && drivers.length > 0) {
+        logger.info(`fetchFactorHosList: company ${uuid} — /hos/list returned ${drivers.length} records`);
+        allDrivers.push(...drivers);
+      } else {
+        logger.info(`fetchFactorHosList: company ${uuid} — /hos/list returned 0`);
+      }
+    } catch (err) {
+      const status = err.response?.status;
+      const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
+      logger.warn(`fetchFactorHosList: company ${uuid} — /hos/list failed — ${status || err.message} — ${body}`);
+    }
+  }
+
+  if (allDrivers.length > 0) return allDrivers;
+
+  // /drivers fallback — try first company UUID
   try {
+    const headers = { ...baseHeaders, 'Company_id': companyUuids[0] };
     const res = await axios.get(`${API_V1_BASE}/drivers`, {
-      headers,
-      timeout: 15000,
+      headers, timeout: 15000,
       params: { limit: 1000, page: 1, status: 'all' },
     });
     const drivers = res.data?.data?.drivers ?? res.data?.drivers ?? res.data?.data ?? [];
@@ -157,7 +198,7 @@ async function fetchFactorHosList(sessionToken, tenantId) {
     }
   } catch (err) {
     const status = err.response?.status;
-    const body = JSON.stringify(err.response?.data ?? '').slice(0, 300);
+    const body = JSON.stringify(err.response?.data ?? '').slice(0, 200);
     logger.warn(`fetchFactorHosList: /drivers failed — ${status || err.message} — ${body}`);
   }
 
