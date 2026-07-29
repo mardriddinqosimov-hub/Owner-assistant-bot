@@ -1,8 +1,10 @@
-const { Op } = require('sequelize');
+const { Op, fn, col, literal } = require('sequelize');
+const sequelize = require('../config/database');
 const Order = require('../models/Order');
 const User  = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
+const ActivityLog = require('../models/ActivityLog');
 const logger = require('../utils/logger');
 const { getMainBot } = require('../services/notificationService');
 const PDFDocument = require('pdfkit');
@@ -37,7 +39,7 @@ const MAIN_KB = {
     [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
     [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
     [{ text: '📄 Report',      callback_data: 'ha_report' }],
-    [{ text: '🔍 Fix Platforms', callback_data: 'ha_fix_platforms' }],
+    [{ text: '📅 Activity',    callback_data: 'ha_activity' }, { text: '🔍 Fix Platforms', callback_data: 'ha_fix_platforms' }],
   ],
 };
 
@@ -347,6 +349,73 @@ const haSetPlatform = async (ctx) => {
     await haUserDetail(ctx);
   } catch (err) {
     logger.error('haSetPlatform error:', err);
+  }
+};
+
+// ─── Activity Report ─────────────────────────────────────────────────────────
+
+const haActivity = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+
+    // Date comes from callback like ha_activity_2026-07-29, default = today UTC
+    const dateStr = ctx.match?.[1] || new Date().toISOString().split('T')[0];
+    const dayStart = new Date(dateStr + 'T00:00:00.000Z');
+    const dayEnd   = new Date(dateStr + 'T23:59:59.999Z');
+
+    const prev = new Date(dayStart); prev.setUTCDate(prev.getUTCDate() - 1);
+    const next = new Date(dayStart); next.setUTCDate(next.getUTCDate() + 1);
+    const prevStr = prev.toISOString().split('T')[0];
+    const nextStr = next.toISOString().split('T')[0];
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Count actions per user for the day
+    const rows = await ActivityLog.findAll({
+      attributes: ['user_id', [fn('COUNT', col('id')), 'cnt']],
+      where: { created_at: { [Op.between]: [dayStart, dayEnd] } },
+      group: ['user_id'],
+      order: [[literal('cnt'), 'DESC']],
+      raw: true,
+    });
+
+    let lines = [`📅 <b>Activity — ${dateStr}</b>\n`];
+
+    if (rows.length === 0) {
+      lines.push('No activity recorded for this day.');
+    } else {
+      const userIds = rows.map(r => r.user_id);
+      const users = await User.findAll({ where: { id: userIds }, attributes: ['id', 'first_name', 'username', 'company_name'], raw: true });
+      const uMap = Object.fromEntries(users.map(u => [u.id, u]));
+
+      let total = 0;
+      rows.forEach((r, i) => {
+        const u = uMap[r.user_id] || {};
+        const name = u.first_name || u.username || `ID ${r.user_id}`;
+        const company = u.company_name ? ` — ${u.company_name}` : '';
+        lines.push(`${i + 1}. ${name}${company}: <b>${r.cnt}</b> actions`);
+        total += parseInt(r.cnt, 10);
+      });
+      lines.push(`\n<i>Total: ${total} actions by ${rows.length} owner${rows.length !== 1 ? 's' : ''}</i>`);
+    }
+
+    const navRow = [
+      { text: `◀️ ${prevStr}`, callback_data: `ha_activity_${prevStr}` },
+    ];
+    if (dateStr !== todayStr) {
+      navRow.push({ text: `▶️ ${nextStr}`, callback_data: `ha_activity_${nextStr}` });
+    }
+
+    await ctx.editMessageText(lines.join('\n'), {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          navRow,
+          [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
+        ],
+      },
+    });
+  } catch (err) {
+    logger.error('haActivity error:', err);
   }
 };
 
@@ -1376,7 +1445,7 @@ async function notifyNewOrder(bot, adminId, order) {
 module.exports = {
   haStart, haMain,
   haStats,
-  haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
+  haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haActivity, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haReport, haReportAudience, haGenerateReport,

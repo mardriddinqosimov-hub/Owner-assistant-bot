@@ -19,6 +19,7 @@ const notifService = require('./services/notificationService');
 const menuTracker = require('./utils/menuTracker');
 require('./models/SupportTask');   // ensure table is created on sync
 require('./models/SupportMember'); // ensure table is created on sync
+const ActivityLog = require('./models/ActivityLog'); // ensure table is created on sync
 const dashboardModule = require('./routes/dashboard');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -47,6 +48,11 @@ bot.use(async (ctx, next) => {
       }
       if (u && (!u.first_name || !u.username) && ctx.from.first_name) {
         await u.update({ first_name: ctx.from.first_name || u.first_name, last_name: ctx.from.last_name || u.last_name, username: ctx.from.username || u.username });
+      }
+      // Log every owner interaction (fire-and-forget, never blocks the response)
+      if (u) {
+        const action = (ctx.callbackQuery?.data || ctx.message?.text || 'other').slice(0, 64);
+        ActivityLog.create({ user_id: u.id, action }).catch(() => {});
       }
     }
     await next();
@@ -240,6 +246,7 @@ function setupAdminBot() {
   adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
   adminBot.action(/^ha_plat_(\d+)_([\w]+)$/,  adminBotHandlers.haSetPlatform);
   adminBot.action('ha_fix_platforms',          adminBotHandlers.haFixPlatforms);
+  adminBot.action(/^ha_activity(?:_(.+))?$/,   adminBotHandlers.haActivity);
   adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
   adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
   adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
