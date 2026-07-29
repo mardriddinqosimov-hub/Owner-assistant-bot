@@ -230,16 +230,20 @@ const setapi = async (ctx) => {
   await ctx.reply('🔄 Connecting to ELD...');
 
   try {
-    const [driversRaw, info, hosResult] = await Promise.all([
-      fetchDrivers(args),
-      fetchCompanyInfo(args),
-      fetchHosList(args),
-    ]);
+    // Auto-detect platform: fetchDrivers uses /v2 with X-API-Provider-Key (Leader ELD partner auth).
+    // If it succeeds → Leader ELD. If it throws (auth failure) → Factor ELD.
+    let driversRaw, info, platform;
+    try {
+      [driversRaw, info] = await Promise.all([fetchDrivers(args), fetchCompanyInfo(args)]);
+      platform = 'leader';
+    } catch (detectErr) {
+      platform = 'factor';
+      driversRaw = [];
+      info = null;
+      logger.info(`setapi: fetchDrivers failed (${detectErr.message}) — platform=factor for user ${ctx.from.id}`);
+    }
     const companyName = info?.name || info?.company_name || null;
-
-    // Auto-detect platform: null from fetchHosList means 401 → Factor ELD; array means Leader ELD
-    const platform = hosResult === null ? 'factor' : 'leader';
-    logger.info(`setapi: auto-detected platform=${platform} for user ${ctx.from.id} (hosResult=${hosResult === null ? 'null(401)' : 'array'})`);
+    logger.info(`setapi: auto-detected platform=${platform} for user ${ctx.from.id}`);
 
     if (user.company_api_key && user.company_api_key !== args) {
       await Inspection.destroy({ where: { user_id: user.id } });

@@ -355,7 +355,7 @@ const haSetPlatform = async (ctx) => {
 const haFixPlatforms = async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const { fetchHosList } = require('../services/eldService');
+    const { fetchDrivers } = require('../services/eldService');
 
     await ctx.editMessageText(
       '🔍 <b>Fixing platforms...</b>\n\nTesting every connected company. This may take a moment.',
@@ -371,11 +371,19 @@ const haFixPlatforms = async (ctx) => {
 
     for (const u of users) {
       try {
-        const hosResult = await fetchHosList(u.company_api_key);
-        const detected = hosResult === null ? 'factor' : 'leader';
+        // fetchDrivers uses /v2 with X-API-Provider-Key + X-API-Company-Key (Leader ELD partner auth).
+        // If it succeeds without throwing → Leader ELD. If it throws → Factor ELD.
+        let detected;
+        try {
+          await fetchDrivers(u.company_api_key);
+          detected = 'leader';
+        } catch {
+          detected = 'factor';
+        }
         if (u.platform !== detected) {
+          const old = u.platform || '—';
           await u.update({ platform: detected });
-          fixedNames.push(`• ${u.first_name || u.username || u.telegram_id} — ${u.company_name || '?'}: ${u.platform || '—'} → ${detected}`);
+          fixedNames.push(`• ${u.first_name || u.username || u.telegram_id} — ${u.company_name || '?'}: ${old} → ${detected}`);
           fixed++;
         } else {
           alreadyOk++;
