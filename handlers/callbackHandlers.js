@@ -268,11 +268,14 @@ const driverRefresh = async (ctx) => {
       const mappedStatus = rawCode
         ? (STATUS_LABELS[String(rawCode).toUpperCase()] || STATUS_LABELS[rawCode] || 'OFF DUTY')
         : 'OFF DUTY';
-      const hosLat = hosEntry.lat && Number(hosEntry.lat) !== 0 ? hosEntry.lat : null;
-      const hosLon = hosEntry.lon && Number(hosEntry.lon) !== 0 ? hosEntry.lon : null;
+      logger.info(`driverRefresh hosEntry keys: ${JSON.stringify(Object.keys(hosEntry))} sample: ${JSON.stringify(hosEntry).slice(0, 400)}`);
+      const pickNum = (obj, ...keys) => { for (const k of keys) { const v = obj[k]; if (v != null && Number(v) !== 0) return v; } return null; };
+      const hosLat = pickNum(hosEntry, 'lat', 'latitude', 'vehicle_lat', 'last_lat', 'current_lat', 'gps_lat', 'last_latitude', 'vehicle_latitude');
+      const hosLon = pickNum(hosEntry, 'lon', 'lng', 'longitude', 'vehicle_lon', 'last_lon', 'current_lon', 'gps_lon', 'last_longitude', 'vehicle_longitude');
       const rawLat = hosLat ?? v.lat ?? v.latitude ?? v.gps_lat ?? v.gps_latitude ?? st.lat ?? st.latitude;
       const rawLon = hosLon ?? v.lon ?? v.lng ?? v.longitude ?? v.gps_lon ?? v.gps_longitude ?? st.lon ?? st.lng ?? st.longitude;
-      const rawSpeed = v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
+      const rawSpeed = hosEntry.speed ?? hosEntry.vehicle_speed ?? hosEntry.current_speed ?? hosEntry.mph ??
+                       v.speed ?? v.current_speed ?? v.vehicle_speed ?? st.speed ?? st.current_speed;
       const rawTruck = hosEntry.vehicle_number ?? v.number ?? v.truck_number ?? v.vehicle_number ?? st.truck_number ?? st.vehicle_number;
       const rawLocation = hosEntry.calculated_location ?? v.calc_location ?? v.location ?? v.address ?? st.calc_location ?? st.location;
       await driver.update({
