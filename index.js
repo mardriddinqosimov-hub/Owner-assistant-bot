@@ -257,6 +257,8 @@ function setupAdminBot() {
   adminBot.action('ha_broadcast', adminBotHandlers.haBroadcast);
 
   adminBot.action('ha_users',                                    adminBotHandlers.haUsersMenu);
+  adminBot.action('ha_user_search',        adminBotHandlers.haUserSearch);
+  adminBot.action('ha_user_search_cancel', adminBotHandlers.haUserSearchCancel);
   adminBot.action(/^ha_ulist_(owner|safety|unknown|blocked)_(\d+)$/, (ctx) =>
     adminBotHandlers.haUsers(ctx, ctx.match[1], parseInt(ctx.match[2])));
   adminBot.action(/^ha_user_(\d+)$/,           adminBotHandlers.haUserDetail);

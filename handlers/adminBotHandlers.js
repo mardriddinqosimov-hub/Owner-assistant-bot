@@ -199,6 +199,7 @@ const haUsersMenu = async (ctx) => {
             [{ text: `🛡 Safety (${safety})`,    callback_data: 'ha_ulist_safety_0' }],
             [{ text: `❓ Unknown (${unknown})`,  callback_data: 'ha_ulist_unknown_0' }],
             [{ text: `🚫 Blocked (${blocked})`,  callback_data: 'ha_ulist_blocked_0' }],
+            [{ text: '🔍 Search User',           callback_data: 'ha_user_search' }],
             [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
           ],
         },
@@ -255,6 +256,7 @@ const haUsers = async (ctx, filter = 'owner', page = 0) => {
     if (page > 0)          nav.push({ text: '◀️ Prev', callback_data: `ha_ulist_${filter}_${page - 1}` });
     if (page < pages - 1)  nav.push({ text: 'Next ▶️', callback_data: `ha_ulist_${filter}_${page + 1}` });
     if (nav.length) buttons.push(nav);
+    buttons.push([{ text: '🔍 Search User', callback_data: 'ha_user_search' }]);
     buttons.push([{ text: '◀️ Back to Users', callback_data: 'ha_users' }]);
 
     await ctx.editMessageText(
@@ -759,9 +761,72 @@ const haBcTarget = async (ctx) => {
 
 // ─── Text handler (broadcast input) ──────────────────────────────────────────
 
+const haUserSearch = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    adminSessions.set(ctx.from.id, { action: 'user_search' });
+    await ctx.reply(
+      '🔍 <b>Search Users</b>\n\nType a name, username, or company name (partial match works):',
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'ha_user_search_cancel' }]] },
+      }
+    );
+  } catch (err) {
+    logger.error('haUserSearch error:', err);
+  }
+};
+
+const haUserSearchCancel = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Cancelled');
+    adminSessions.delete(ctx.from.id);
+    await ctx.deleteMessage();
+  } catch (err) {
+    logger.error('haUserSearchCancel error:', err);
+  }
+};
+
 const haHandleText = async (ctx) => {
   const session = adminSessions.get(ctx.from.id);
   if (!session) return;
+
+  // ── User search ──────────────────────────────────────────────────────────
+  if (session.action === 'user_search') {
+    adminSessions.delete(ctx.from.id);
+    const query = ctx.message.text.trim().toLowerCase();
+    const allUsers = await User.findAll({ where: { deleted_at: null }, order: [['created_at', 'DESC']] });
+    const results = allUsers.filter(u =>
+      (u.first_name  && u.first_name.toLowerCase().includes(query))  ||
+      (u.last_name   && u.last_name.toLowerCase().includes(query))   ||
+      (u.username    && u.username.toLowerCase().includes(query))    ||
+      (u.company_name && u.company_name.toLowerCase().includes(query))
+    );
+    if (!results.length) {
+      return ctx.reply(`🔍 No users found for "<b>${query}</b>".`, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          [{ text: '🔍 Search Again', callback_data: 'ha_user_search' }],
+          [{ text: '◀️ Back to Users', callback_data: 'ha_users' }],
+        ]},
+      });
+    }
+    const userBtns = results.map(u => [{
+      text: `${roleIcon(u.role)} ${userName(u)} — ${u.company_name || 'No company'} [${platLabel(u.platform)}]${u.blocked ? ' 🚫' : ''}`,
+      callback_data: `ha_user_${u.id}`,
+    }]);
+    return ctx.reply(
+      `🔍 <b>Results for "${query}"</b>  (${results.length} found)`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          ...userBtns,
+          [{ text: '🔍 Search Again', callback_data: 'ha_user_search' }],
+          [{ text: '◀️ Back to Users', callback_data: 'ha_users' }],
+        ]},
+      }
+    );
+  }
 
   // ── Add admin by Telegram ID ─────────────────────────────────────────────
   if (session.action === 'admin_add_id') {
@@ -1524,6 +1589,7 @@ module.exports = {
   haStart, haMain,
   haStats,
   haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
+  haUserSearch, haUserSearchCancel,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
   haReport, haRptSection, haRptActivity, haRptCounts, haRptPdf, haGenerateReport,
