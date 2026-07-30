@@ -954,28 +954,6 @@ function pdfHeaderRow(doc, cols, xs, widths, y, rowH) {
   return y + rowH;
 }
 
-const haReport = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      `📄 <b>Report</b>\n\nStep 1 — Select period:`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '📅 Weekly (last 7 days)',   callback_data: 'ha_rperiod_week' }],
-            [{ text: '🗓 Monthly (last 30 days)',  callback_data: 'ha_rperiod_month' }],
-            [{ text: '📆 All Time',               callback_data: 'ha_rperiod_all' }],
-            [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
-          ],
-        },
-      }
-    );
-  } catch (err) {
-    logger.error('haReport error:', err);
-  }
-};
-
 // callback: ha_rpt_pdfgen_(month|all)_(owner|all)
 const haGenerateReport = async (ctx) => {
   try {
