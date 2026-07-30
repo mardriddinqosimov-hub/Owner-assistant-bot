@@ -39,7 +39,7 @@ const MAIN_KB = {
     [{ text: '👑 Admin Users', callback_data: 'ha_admins' }],
     [{ text: '📢 Broadcast',   callback_data: 'ha_broadcast' }],
     [{ text: '📄 Report',      callback_data: 'ha_report' }],
-    [{ text: '📅 Activity',    callback_data: 'ha_activity' }, { text: '🔍 Fix Platforms', callback_data: 'ha_fix_platforms' }],
+    [{ text: '🔍 Fix Platforms', callback_data: 'ha_fix_platforms' }],
   ],
 };
 
@@ -352,33 +352,80 @@ const haSetPlatform = async (ctx) => {
   }
 };
 
-// ─── Activity Report ─────────────────────────────────────────────────────────
+// ─── Report hub ──────────────────────────────────────────────────────────────
 
-const haActivity = async (ctx) => {
+const haReport = async (ctx) => {
   try {
     await ctx.answerCbQuery();
+    await ctx.editMessageText('📊 <b>Report</b>\n\nChoose a section:', {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📅 Activity Report', callback_data: 'ha_rpt_section_act' }],
+          [{ text: '👥 User Counts',     callback_data: 'ha_rpt_section_cnt' }],
+          [{ text: '📄 PDF Export',      callback_data: 'ha_rpt_section_pdf' }],
+          [{ text: '◀️ Main Menu',       callback_data: 'ha_main' }],
+        ],
+      },
+    });
+  } catch (err) { logger.error('haReport error:', err); }
+};
 
-    // Date comes from callback like ha_activity_2026-07-29, default = today UTC
-    const dateStr = ctx.match?.[1] || new Date().toISOString().split('T')[0];
+// Shared audience picker — section is act | cnt | pdf
+const haRptSection = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const section = ctx.match[1];
+    const label = section === 'act' ? '📅 Activity Report'
+                : section === 'cnt' ? '👥 User Counts'
+                : '📄 PDF Export';
+    await ctx.editMessageText(`${label}\n\nFilter by:`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '👤 Owners Only', callback_data: `ha_rpt_${section}_owner` }],
+          [{ text: '👥 All Users',   callback_data: `ha_rpt_${section}_all` }],
+          [{ text: '◀️ Back',        callback_data: 'ha_report' }],
+        ],
+      },
+    });
+  } catch (err) { logger.error('haRptSection error:', err); }
+};
+
+// ─── Activity Report ──────────────────────────────────────────────────────────
+// callback: ha_rpt_act_(owner|all)_(date?)
+
+const haRptActivity = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const audience = ctx.match[1]; // owner | all
+    const dateStr  = ctx.match[2] || new Date().toISOString().split('T')[0];
     const dayStart = new Date(dateStr + 'T00:00:00.000Z');
     const dayEnd   = new Date(dateStr + 'T23:59:59.999Z');
+    const todayStr = new Date().toISOString().split('T')[0];
 
     const prev = new Date(dayStart); prev.setUTCDate(prev.getUTCDate() - 1);
     const next = new Date(dayStart); next.setUTCDate(next.getUTCDate() + 1);
     const prevStr = prev.toISOString().split('T')[0];
     const nextStr = next.toISOString().split('T')[0];
-    const todayStr = new Date().toISOString().split('T')[0];
 
-    // Count actions per user for the day
+    // If owners only, get their IDs first
+    let userIdFilter = {};
+    if (audience === 'owner') {
+      const ownerIds = await User.findAll({ where: { role: 'owner' }, attributes: ['id'], raw: true });
+      userIdFilter = { user_id: { [Op.in]: ownerIds.map(u => u.id) } };
+    }
+
     const rows = await ActivityLog.findAll({
       attributes: ['user_id', [fn('COUNT', col('id')), 'cnt']],
-      where: { created_at: { [Op.between]: [dayStart, dayEnd] } },
+      where: { created_at: { [Op.between]: [dayStart, dayEnd] }, ...userIdFilter },
       group: ['user_id'],
       order: [[literal('cnt'), 'DESC']],
       raw: true,
     });
 
-    let lines = [`📅 <b>Activity — ${dateStr}</b>\n`];
+    const audLabel = audience === 'owner' ? 'Owners Only' : 'All Users';
+    const lines = [`📅 <b>Activity — ${dateStr}</b>  <i>${audLabel}</i>\n`];
 
     if (rows.length === 0) {
       lines.push('No activity recorded for this day.');
@@ -386,37 +433,101 @@ const haActivity = async (ctx) => {
       const userIds = rows.map(r => r.user_id);
       const users = await User.findAll({ where: { id: userIds }, attributes: ['id', 'first_name', 'username', 'company_name'], raw: true });
       const uMap = Object.fromEntries(users.map(u => [u.id, u]));
-
       let total = 0;
       rows.forEach((r, i) => {
         const u = uMap[r.user_id] || {};
         const name = u.first_name || u.username || `ID ${r.user_id}`;
         const company = u.company_name ? ` — ${u.company_name}` : '';
-        lines.push(`${i + 1}. ${name}${company}: <b>${r.cnt}</b> actions`);
+        lines.push(`${i + 1}. ${name}${company}: <b>${r.cnt}</b>`);
         total += parseInt(r.cnt, 10);
       });
-      lines.push(`\n<i>Total: ${total} actions by ${rows.length} owner${rows.length !== 1 ? 's' : ''}</i>`);
+      lines.push(`\n<i>Total: ${total} actions by ${rows.length} user${rows.length !== 1 ? 's' : ''}</i>`);
     }
 
-    const navRow = [
-      { text: `◀️ ${prevStr}`, callback_data: `ha_activity_${prevStr}` },
-    ];
-    if (dateStr !== todayStr) {
-      navRow.push({ text: `▶️ ${nextStr}`, callback_data: `ha_activity_${nextStr}` });
-    }
+    const navRow = [{ text: `◀️ ${prevStr}`, callback_data: `ha_rpt_act_${audience}_${prevStr}` }];
+    if (dateStr !== todayStr) navRow.push({ text: `▶️ ${nextStr}`, callback_data: `ha_rpt_act_${audience}_${nextStr}` });
+
+    const toggleRow = audience === 'owner'
+      ? [{ text: '👥 Switch to All Users', callback_data: `ha_rpt_act_all_${dateStr}` }]
+      : [{ text: '👤 Switch to Owners Only', callback_data: `ha_rpt_act_owner_${dateStr}` }];
 
     await ctx.editMessageText(lines.join('\n'), {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [
           navRow,
-          [{ text: '◀️ Main Menu', callback_data: 'ha_main' }],
+          toggleRow,
+          [{ text: '◀️ Back', callback_data: 'ha_rpt_section_act' }],
         ],
       },
     });
-  } catch (err) {
-    logger.error('haActivity error:', err);
-  }
+  } catch (err) { logger.error('haRptActivity error:', err); }
+};
+
+// ─── User Counts ──────────────────────────────────────────────────────────────
+// callback: ha_rpt_cnt_(owner|all)
+
+const haRptCounts = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const audience = ctx.match[1]; // owner | all
+    const where = audience === 'owner' ? { role: 'owner' } : {};
+    const audLabel = audience === 'owner' ? 'Owners Only' : 'All Users';
+
+    const [total, withCompany, noCompany, leader, factor, noPlatform, blocked] = await Promise.all([
+      User.count({ where }),
+      User.count({ where: { ...where, company_name: { [Op.not]: null } } }),
+      User.count({ where: { ...where, company_name: null } }),
+      User.count({ where: { ...where, platform: 'leader' } }),
+      User.count({ where: { ...where, platform: 'factor' } }),
+      User.count({ where: { ...where, platform: null } }),
+      User.count({ where: { ...where, blocked: true } }),
+    ]);
+
+    let text = `👥 <b>User Counts</b>  <i>${audLabel}</i>\n\n`;
+    if (audience === 'all') {
+      const [owners, safety, unknown] = await Promise.all([
+        User.count({ where: { role: 'owner' } }),
+        User.count({ where: { role: 'safety' } }),
+        User.count({ where: { role: { [Op.notIn]: ['owner', 'safety'] } } }),
+      ]);
+      text += `<b>By role:</b>\n• Owners: <b>${owners}</b>  |  Safety: <b>${safety}</b>  |  Other: <b>${unknown}</b>\n\n`;
+    }
+    text +=
+      `<b>Company:</b>\n• With company: <b>${withCompany}</b>  |  Without: <b>${noCompany}</b>\n\n` +
+      `<b>ELD Platform:</b>\n• Leader: <b>${leader}</b>  |  Factor: <b>${factor}</b>  |  Unknown: <b>${noPlatform}</b>\n\n` +
+      `<b>Total: ${total}</b>  |  Blocked: <b>${blocked}</b>`;
+
+    const toggleRow = audience === 'owner'
+      ? [{ text: '👥 Switch to All Users', callback_data: 'ha_rpt_cnt_all' }]
+      : [{ text: '👤 Switch to Owners Only', callback_data: 'ha_rpt_cnt_owner' }];
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [toggleRow, [{ text: '◀️ Back', callback_data: 'ha_rpt_section_cnt' }]] },
+    });
+  } catch (err) { logger.error('haRptCounts error:', err); }
+};
+
+// ─── PDF period selector ──────────────────────────────────────────────────────
+// callback: ha_rpt_pdf_(owner|all)
+
+const haRptPdf = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const audience = ctx.match[1];
+    const audLabel = audience === 'owner' ? 'Owners Only' : 'All Users';
+    await ctx.editMessageText(`📄 <b>PDF Export</b>  <i>${audLabel}</i>\n\nSelect period:`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🗓 Monthly (last 30 days)', callback_data: `ha_rpt_pdfgen_month_${audience}` }],
+          [{ text: '📆 All Time',               callback_data: `ha_rpt_pdfgen_all_${audience}` }],
+          [{ text: '◀️ Back',                   callback_data: 'ha_rpt_section_pdf' }],
+        ],
+      },
+    });
+  } catch (err) { logger.error('haRptPdf error:', err); }
 };
 
 // ─── Fix Platforms (bulk re-detect) ──────────────────────────────────────────
@@ -865,78 +976,56 @@ const haReport = async (ctx) => {
   }
 };
 
-const haReportAudience = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const period = ctx.match[1];
-    const periodText = period === 'week' ? 'Weekly' : period === 'month' ? 'Monthly' : 'All-Time';
-    await ctx.editMessageText(
-      `📄 <b>Report — ${periodText}</b>\n\nStep 2 — Select who to include:`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '👥 All Users',              callback_data: `ha_rgen_${period}_all` }],
-            [{ text: '👤 Owners Only',            callback_data: `ha_rgen_${period}_owners` }],
-            [{ text: '👤👷 Owners + Safety',      callback_data: `ha_rgen_${period}_ownersafe` }],
-            [{ text: '◀️ Back', callback_data: 'ha_report' }],
-          ],
-        },
-      }
-    );
-  } catch (err) {
-    logger.error('haReportAudience error:', err);
-  }
-};
-
+// callback: ha_rpt_pdfgen_(month|all)_(owner|all)
 const haGenerateReport = async (ctx) => {
   try {
     await ctx.answerCbQuery('Generating PDF…');
-    const period   = ctx.match[1]; // week | month | all
-    const audience = ctx.match[2]; // all | owners | ownersafe
+    const period   = ctx.match[1]; // month | all
+    const audience = ctx.match[2]; // owner | all
 
     const now = new Date();
     let since = null;
     let periodLabel = '';
-    if (period === 'week') {
-      since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      periodLabel = 'Weekly Report — Last 7 Days';
-    } else if (period === 'month') {
+    if (period === 'month') {
       since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       periodLabel = 'Monthly Report — Last 30 Days';
     } else {
       periodLabel = 'All-Time Report';
     }
 
-    const audienceLabel = audience === 'owners' ? 'Owners Only'
-      : audience === 'ownersafe' ? 'Owners & Safety'
-      : 'All Users';
-
-    const dateWhere  = since ? { [Op.gte]: since } : { [Op.not]: null };
-
-    // Role filter for "joined" query
-    const roleFilter = audience === 'owners'
-      ? { role: 'owner' }
-      : audience === 'ownersafe'
-        ? { role: { [Op.in]: ['owner', 'safety'] } }
-        : {};
+    const audienceLabel = audience === 'owner' ? 'Owners Only' : 'All Users';
+    const roleFilter    = audience === 'owner' ? { role: 'owner' } : {};
+    const dateWhere     = since ? { [Op.gte]: since } : { [Op.not]: null };
 
     const [joined, deleted, totalActive, totalBlocked, totalOwners, totalSafety] = await Promise.all([
-      User.findAll({
-        where: { created_at: dateWhere, deleted_at: null, ...roleFilter },
-        order: [['created_at', 'ASC']],
-      }),
-      User.findAll({
-        where: { deleted_at: dateWhere, ...roleFilter },
-        order: [['deleted_at', 'ASC']],
-      }),
+      User.findAll({ where: { created_at: dateWhere, deleted_at: null, ...roleFilter }, order: [['created_at', 'ASC']] }),
+      User.findAll({ where: { deleted_at: dateWhere, ...roleFilter }, order: [['deleted_at', 'ASC']] }),
       User.count({ where: { deleted_at: null, blocked: { [Op.not]: true }, ...roleFilter } }),
       User.count({ where: { deleted_at: null, blocked: true } }),
       User.count({ where: { deleted_at: null, role: 'owner' } }),
       User.count({ where: { deleted_at: null, role: 'safety' } }),
     ]);
 
-    // ── Build PDF ──────────────────────────────────────────────────────────────
+    // Activity per user for the period
+    const actWhere = { created_at: since ? { [Op.gte]: since } : { [Op.not]: null } };
+    if (audience === 'owner') {
+      const ownerIds = await User.findAll({ where: { role: 'owner' }, attributes: ['id'], raw: true });
+      actWhere.user_id = { [Op.in]: ownerIds.map(u => u.id) };
+    }
+    const actRows = await ActivityLog.findAll({
+      attributes: ['user_id', [fn('COUNT', col('id')), 'cnt']],
+      where: actWhere,
+      group: ['user_id'],
+      order: [[literal('cnt'), 'DESC']],
+      raw: true,
+    });
+    const actUserIds = actRows.map(r => r.user_id);
+    const actUsers   = actUserIds.length
+      ? await User.findAll({ where: { id: actUserIds }, attributes: ['id', 'first_name', 'username', 'company_name', 'role'], raw: true })
+      : [];
+    const actUMap = Object.fromEntries(actUsers.map(u => [u.id, u]));
+
+    // ── Build PDF ─────────────────────────────────────────────────────────────
     const doc    = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
     const stream = new PassThrough();
     const chunks = [];
@@ -944,10 +1033,10 @@ const haGenerateReport = async (ctx) => {
     stream.on('data', c => chunks.push(c));
 
     const generatedAt = now.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'America/Chicago' });
-    const PAGE_W = 595, L = 50, R = 545, BODY = 495;
+    const L = 50, BODY = 495;
     let y = 50;
 
-    // ── Header banner ─────────────────────────────────────────────────────────
+    // Header
     doc.rect(L, y, BODY, 66).fill('#1a1a2e');
     doc.fillColor('#ffffff').fontSize(17).font('Helvetica-Bold')
        .text('OWNER ASSISTANT BOT', L, y + 10, { align: 'center', width: BODY, lineBreak: false });
@@ -956,19 +1045,19 @@ const haGenerateReport = async (ctx) => {
     doc.fontSize(8.5).fillColor('#aaaaaa')
        .text('Filter: ' + audienceLabel, L, y + 50, { align: 'center', width: BODY, lineBreak: false });
     y += 78;
-
     doc.fillColor('#555555').fontSize(8)
        .text('Generated: ' + generatedAt, L, y, { align: 'right', width: BODY, lineBreak: false });
     y += 18;
 
-    // ── Summary box ───────────────────────────────────────────────────────────
+    // Summary
     doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 6;
     doc.fillColor('#000000').fontSize(10).font('Helvetica-Bold').text('SUMMARY', L, y); y += 16;
-
+    const totalAct = actRows.reduce((s, r) => s + parseInt(r.cnt, 10), 0);
     const sumFields = [
-      ['New users joined (this period):', joined.length,  'Total active users:',   totalActive],
-      ['Users deleted (this period):',    deleted.length, 'Total blocked users:',  totalBlocked],
+      ['New users joined (this period):', joined.length,  'Total active users:',    totalActive],
+      ['Users deleted (this period):',    deleted.length, 'Total blocked users:',   totalBlocked],
       ['Total owners:',                   totalOwners,    'Total safety officers:', totalSafety],
+      ['Total app actions (this period):', totalAct,      'Active users tracked:',  actRows.length],
     ];
     sumFields.forEach(([l1, v1, l2, v2]) => {
       doc.font('Helvetica').fontSize(9.5).fillColor('#333')
@@ -981,16 +1070,30 @@ const haGenerateReport = async (ctx) => {
          .text(String(v2), L + 448, y, { width: 47, lineBreak: false });
       y += 16;
     });
-    y += 6;
-    doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 14;
+    y += 6; doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 14;
 
-    // ── New Users table ───────────────────────────────────────────────────────
     const ROW_H = 18;
-    // col widths: #, Name, Company, Role, Platform, Joined — must sum to BODY (495)
-    const NW2 = [20, 88, 195, 50, 82, 60]; // sum = 495
-    const NX = [];
-    for (let i = 0; i < NW2.length; i++) NX.push(i === 0 ? L : NX[i - 1] + NW2[i - 1]);
 
+    // Activity table
+    const AW = [20, 130, 215, 70, 60]; // #, Name, Company, Role, Actions — sum 495
+    const AX = []; for (let i = 0; i < AW.length; i++) AX.push(i === 0 ? L : AX[i-1] + AW[i-1]);
+    y = pdfSection(doc, `Owner Activity  (${actRows.length} users, ${totalAct} actions)`, y);
+    if (actRows.length === 0) {
+      doc.fillColor('#888888').fontSize(9).font('Helvetica').text('No activity recorded for this period.', L, y); y += 20;
+    } else {
+      y = pdfHeaderRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Actions'], AX, AW, y, ROW_H);
+      actRows.forEach((r, i) => {
+        if (y > 750) { doc.addPage(); y = 50; }
+        const u = actUMap[r.user_id] || {};
+        y = pdfRow(doc, [i + 1, safePdfName(u), u.company_name || '—', roleLabel(u.role), r.cnt],
+          AX, AW, y, ROW_H, i % 2 === 0 ? '#f0fff4' : '#ffffff');
+      });
+    }
+    y += 14;
+
+    // New Users table
+    const NW2 = [20, 88, 195, 50, 82, 60];
+    const NX  = []; for (let i = 0; i < NW2.length; i++) NX.push(i === 0 ? L : NX[i-1] + NW2[i-1]);
     y = pdfSection(doc, `New Users Joined  (${joined.length})`, y);
     if (joined.length === 0) {
       doc.fillColor('#888888').fontSize(9).font('Helvetica').text('No new users in this period.', L, y); y += 20;
@@ -998,17 +1101,15 @@ const haGenerateReport = async (ctx) => {
       y = pdfHeaderRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Platform', 'Joined'], NX, NW2, y, ROW_H);
       joined.forEach((u, i) => {
         if (y > 750) { doc.addPage(); y = 50; }
-        y = pdfRow(doc, [i + 1, safePdfName(u), u.company_name || '—', roleLabel(u.role), platformLabel(u.platform), fmtDate(u.created_at)],
+        y = pdfRow(doc, [i+1, safePdfName(u), u.company_name||'—', roleLabel(u.role), platformLabel(u.platform), fmtDate(u.created_at)],
           NX, NW2, y, ROW_H, i % 2 === 0 ? '#f0f4ff' : '#ffffff');
       });
     }
     y += 14;
 
-    // ── Deleted Users table ───────────────────────────────────────────────────
-    const DW = [20, 105, 215, 95, 60]; // #, Name, Company, Role, Deleted On — sum = 495
-    const DX = [];
-    for (let i = 0; i < DW.length; i++) DX.push(i === 0 ? L : DX[i - 1] + DW[i - 1]);
-
+    // Deleted Users table
+    const DW = [20, 105, 215, 95, 60];
+    const DX = []; for (let i = 0; i < DW.length; i++) DX.push(i === 0 ? L : DX[i-1] + DW[i-1]);
     y = pdfSection(doc, `Deleted by Admin  (${deleted.length})`, y);
     if (deleted.length === 0) {
       doc.fillColor('#888888').fontSize(9).font('Helvetica').text('No users deleted in this period.', L, y); y += 20;
@@ -1016,14 +1117,13 @@ const haGenerateReport = async (ctx) => {
       y = pdfHeaderRow(doc, ['#', 'Name / Username', 'Company', 'Role', 'Deleted On'], DX, DW, y, ROW_H);
       deleted.forEach((u, i) => {
         if (y > 750) { doc.addPage(); y = 50; }
-        y = pdfRow(doc, [i + 1, safePdfName(u), u.company_name || '—', roleLabel(u.role), fmtDate(u.deleted_at)],
+        y = pdfRow(doc, [i+1, safePdfName(u), u.company_name||'—', roleLabel(u.role), fmtDate(u.deleted_at)],
           DX, DW, y, ROW_H, i % 2 === 0 ? '#fff0f0' : '#ffffff');
       });
     }
 
-    // ── Footer ────────────────────────────────────────────────────────────────
-    y += 20;
-    doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 6;
+    // Footer
+    y += 20; doc.rect(L, y, BODY, 1).fill('#cccccc'); y += 6;
     doc.fillColor('#888888').fontSize(7.5).font('Helvetica')
        .text('Owner Assistant Bot  —  Confidential Report', L, y, { align: 'center', width: BODY });
 
@@ -1035,7 +1135,7 @@ const haGenerateReport = async (ctx) => {
     await ctx.replyWithDocument(
       { source: pdfBuffer, filename },
       {
-        caption: `📄 <b>${periodLabel}</b>\nFilter: ${audienceLabel}\n\nJoined: ${joined.length}  |  Deleted: ${deleted.length}  |  Active: ${totalActive}`,
+        caption: `📄 <b>${periodLabel}</b>\nFilter: ${audienceLabel}\n\nJoined: ${joined.length}  |  Deleted: ${deleted.length}  |  Active: ${totalActive}  |  Actions: ${totalAct}`,
         parse_mode: 'HTML',
       }
     );
@@ -1445,10 +1545,10 @@ async function notifyNewOrder(bot, adminId, order) {
 module.exports = {
   haStart, haMain,
   haStats,
-  haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haActivity, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
+  haUsersMenu, haUsers, haUserDetail, haSetRole, haSetPlatform, haFixPlatforms, haBlock, haUnblock, haDeleteConfirm, haDeleteUser,
   haOrders, haOrderDetail,
   haBroadcast, haBcTarget,
-  haReport, haReportAudience, haGenerateReport,
+  haReport, haRptSection, haRptActivity, haRptCounts, haRptPdf, haGenerateReport,
   haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
   haBlocks, haBlockDetail, haBlockOwners,
   haAssignBlock, haSetBlock,

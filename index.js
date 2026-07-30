@@ -261,16 +261,18 @@ function setupAdminBot() {
   adminBot.action(/^ha_user_(\d+)$/,           adminBotHandlers.haUserDetail);
   adminBot.action(/^ha_role_(\d+)_([\w]+)$/,  adminBotHandlers.haSetRole);
   adminBot.action(/^ha_plat_(\d+)_([\w]+)$/,  adminBotHandlers.haSetPlatform);
-  adminBot.action('ha_fix_platforms',          adminBotHandlers.haFixPlatforms);
-  adminBot.action(/^ha_activity(?:_(.+))?$/,   adminBotHandlers.haActivity);
-  adminBot.action(/^ha_block_(\d+)$/,          adminBotHandlers.haBlock);
-  adminBot.action(/^ha_unblock_(\d+)$/,        adminBotHandlers.haUnblock);
-  adminBot.action(/^ha_delete_(\d+)$/,         adminBotHandlers.haDeleteConfirm);
-  adminBot.action(/^ha_delete_yes_(\d+)$/,     adminBotHandlers.haDeleteUser);
-  adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/, adminBotHandlers.haBcTarget);
-  adminBot.action('ha_report',                                        adminBotHandlers.haReport);
-  adminBot.action(/^ha_rperiod_(week|month|all)$/,                    adminBotHandlers.haReportAudience);
-  adminBot.action(/^ha_rgen_(week|month|all)_(all|owners|ownersafe)$/,adminBotHandlers.haGenerateReport);
+  adminBot.action('ha_fix_platforms',                                   adminBotHandlers.haFixPlatforms);
+  adminBot.action(/^ha_block_(\d+)$/,                                   adminBotHandlers.haBlock);
+  adminBot.action(/^ha_unblock_(\d+)$/,                                 adminBotHandlers.haUnblock);
+  adminBot.action(/^ha_delete_(\d+)$/,                                   adminBotHandlers.haDeleteConfirm);
+  adminBot.action(/^ha_delete_yes_(\d+)$/,                              adminBotHandlers.haDeleteUser);
+  adminBot.action(/^ha_bc_(all|owner|safety|leader|factor)$/,           adminBotHandlers.haBcTarget);
+  adminBot.action('ha_report',                                           adminBotHandlers.haReport);
+  adminBot.action(/^ha_rpt_section_(act|cnt|pdf)$/,                     adminBotHandlers.haRptSection);
+  adminBot.action(/^ha_rpt_act_(owner|all)(?:_(.+))?$/,                 adminBotHandlers.haRptActivity);
+  adminBot.action(/^ha_rpt_cnt_(owner|all)$/,                           adminBotHandlers.haRptCounts);
+  adminBot.action(/^ha_rpt_pdf_(owner|all)$/,                           adminBotHandlers.haRptPdf);
+  adminBot.action(/^ha_rpt_pdfgen_(month|all)_(owner|all)$/,            adminBotHandlers.haGenerateReport);
 
   // Admin users management
   adminBot.action('ha_admins',                               adminBotHandlers.haAdmins);
