@@ -1,5 +1,6 @@
 const logger = require('../utils/logger');
 const User = require('../models/User');
+const Driver = require('../models/Driver');
 const Order = require('../models/Order');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const notifService = require('../services/notificationService');
@@ -17,6 +18,7 @@ const {
   showConfirmation,
   buildOrderSummary,
   specialTaskSessions,
+  driverSearchSessions,
 } = require('./callbackHandlers');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
@@ -102,6 +104,48 @@ const handleText = async (ctx) => {
   if (ctx.message.text.startsWith('/')) return;
 
   const userId = ctx.from.id;
+
+  // ── Driver search ──────────────────────────────────────────────────────────
+  if (driverSearchSessions.has(userId)) {
+    driverSearchSessions.delete(userId);
+    const query = ctx.message.text.trim().toLowerCase();
+    const user = await User.findOne({ where: { telegram_id: userId } });
+    if (!user) return ctx.reply('Please /start first.');
+    const allDrivers = await Driver.findAll({ where: { user_id: user.id } });
+    const results = allDrivers.filter(d =>
+      d.driver_name.toLowerCase().includes(query) ||
+      (d.truck_number && d.truck_number.toLowerCase().includes(query))
+    );
+    if (!results.length) {
+      return ctx.reply(`🔍 No drivers found for "<b>${query}</b>".`, {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          [{ text: '🔍 Search Again', callback_data: 'driver_search' }],
+          [{ text: '◀️ Back to Drivers', callback_data: 'drivers_list' }],
+        ]},
+      });
+    }
+    const STATUS_EMOJI = {
+      'DRIVING': '🟢', 'ON DUTY': '🔵', 'SLEEPER BERTH': '🟠',
+      'OFF DUTY': '⚫', 'PERSONAL CONVEYANCE': '🟡', 'YARD MOVE': '🟤',
+    };
+    const driverBtns = results.map(d => {
+      const emoji = STATUS_EMOJI[d.current_status] || '⚫';
+      const truck = d.truck_number ? `  ·  ${d.truck_number}` : '';
+      return [{ text: `${emoji}  ${d.driver_name}${truck}`, callback_data: `driver_details_${d.driver_id}` }];
+    });
+    return ctx.reply(
+      `🔍 <b>Results for "${query}"</b>  (${results.length} found)`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          ...driverBtns,
+          [{ text: '🔍 Search Again', callback_data: 'driver_search' }],
+          [{ text: '◀️ Back to Drivers', callback_data: 'drivers_list' }],
+        ]},
+      }
+    );
+  }
 
   // ── Registration flow ──────────────────────────────────────────────────────
   const regSession = registrationSessions.get(userId);

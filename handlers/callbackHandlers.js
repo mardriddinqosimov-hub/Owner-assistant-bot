@@ -115,6 +115,7 @@ const driversList = async (ctx) => {
               makeBtn('ON'),
               makeBtn('SB'),
               makeBtn('OFF'),
+              [{ text: '🔍 Search Driver', callback_data: 'driver_search' }],
               [{ text: '🔄 Refresh', callback_data: 'drivers_list_refresh' }],
               [{ text: '◀️ Back', callback_data: 'main_menu' }],
             ],
@@ -169,6 +170,7 @@ async function renderCategoryList(ctx, key) {
         reply_markup: {
           inline_keyboard: [
             ...driverBtns,
+            [{ text: '🔍 Search Driver', callback_data: 'driver_search' }],
             [{ text: '🔄 Refresh', callback_data: `drivers_catref_${key}` }],
             [{ text: '◀️ Back', callback_data: 'drivers_list' }],
           ],
@@ -205,6 +207,32 @@ const driversCatRefresh = async (ctx) => {
   } catch (error) {
     logger.error('driversCatRefresh error:', error);
     await ctx.reply('❌ Error refreshing.');
+  }
+};
+
+const driverSearch = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    driverSearchSessions.set(ctx.from.id, true);
+    await ctx.reply(
+      '🔍 <b>Search Drivers</b>\n\nType a name or unit number (partial match works):',
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'driver_search_cancel' }]] },
+      }
+    );
+  } catch (err) {
+    logger.error('driverSearch error:', err);
+  }
+};
+
+const driverSearchCancel = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Cancelled');
+    driverSearchSessions.delete(ctx.from.id);
+    await ctx.deleteMessage();
+  } catch (err) {
+    logger.error('driverSearchCancel error:', err);
   }
 };
 
@@ -371,7 +399,8 @@ const REG_PROMPTS = {
   reg_address:    '📍 <b>(4/4) Delivery Address</b>\n\nEnter your default delivery address (used for all orders):',
 };
 const registrationSessions = new Map();
-const cardSessions = new Map(); // userId → true, waiting for owner to send card number
+const cardSessions = new Map();
+const driverSearchSessions = new Map(); // userId → true, waiting for search query
 
 function computeFullSetTotal(sets, shipping) {
   return parseFloat((sets * PRICES.fullset_base + (shipping === 'overnight' ? PRICES.fullset_overnight : 0)).toFixed(2));
@@ -2151,7 +2180,7 @@ const sendManual = async (ctx) => {
 
 module.exports = {
   driverDetails, driverRefresh, driversList, driversListRefresh, driverLocation,
-  driversCatShow, driversCatRefresh,
+  driversCatShow, driversCatRefresh, driverSearch, driverSearchCancel, driverSearchSessions,
   orderStart, orderNew,
   orderFullSet, fsSelectCable, fsSelectCount, fsSelectShipping,
   orderCustom, cuSelectItem, cuSetQty, cuShowShipping, cuSelectShipping,
