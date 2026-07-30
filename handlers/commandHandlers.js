@@ -256,7 +256,10 @@ const setapi = async (ctx) => {
     logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
     await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);
     const count = await syncDrivers(user, args, driversRaw);
-    await ctx.reply(`✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.`, {
+    const syncMsg = platform === 'factor'
+      ? `✅ Connected! Driver list will sync automatically.\n\n⚠️ Live driver sync is not available for Factor ELD via this API.`
+      : `✅ Synced! Found ${count} driver${count !== 1 ? 's' : ''}.`;
+    await ctx.reply(syncMsg, {
       reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
     });
   } catch (err) {
@@ -475,4 +478,4 @@ async function checkNewInspections(bot) {
   }
 }
 
-module.exports = { start, setapi, syncDrivers, checkNewInspections };
+module.exports = { start, setapi, syncDrivers, checkNewInspections, mapStatus };

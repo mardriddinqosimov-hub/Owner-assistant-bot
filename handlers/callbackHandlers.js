@@ -8,7 +8,7 @@ const Inspection = require('../models/Inspection');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
-const { syncDrivers } = require('./commandHandlers');
+const { syncDrivers, mapStatus } = require('./commandHandlers');
 const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, formatSeconds } = require('../services/eldService');
 
 // ─── Driver Status Groups ────────────────────────────────────────────────────
@@ -256,19 +256,8 @@ const driverRefresh = async (ctx) => {
 
     const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
     if (driver) {
-      const STATUS_LABELS = {
-        'DS_D': 'DRIVING', 'DS_ON': 'ON DUTY', 'DS_OFF': 'OFF DUTY',
-        'DS_SB': 'SLEEPER BERTH', 'DS_PC': 'PERSONAL CONVEYANCE', 'DS_YM': 'YARD MOVE',
-        'D': 'DRIVING', 'DR': 'DRIVING', 'ON': 'ON DUTY', 'OFF': 'OFF DUTY',
-        'SB': 'SLEEPER BERTH', 'PC': 'PERSONAL CONVEYANCE', 'YM': 'YARD MOVE',
-        'DRIVING': 'DRIVING', 'ON DUTY': 'ON DUTY', 'OFF DUTY': 'OFF DUTY',
-        'SLEEPER BERTH': 'SLEEPER BERTH', 'PERSONAL CONVEYANCE': 'PERSONAL CONVEYANCE', 'YARD MOVE': 'YARD MOVE',
-      };
       const rawCode = st.current_status ?? st.duty_status ?? st.status ?? st.hos_status ?? st.driver_status;
-      const mappedStatus = rawCode
-        ? (STATUS_LABELS[String(rawCode).toUpperCase()] || STATUS_LABELS[rawCode] || 'OFF DUTY')
-        : 'OFF DUTY';
-      logger.info(`driverRefresh hosEntry keys: ${JSON.stringify(Object.keys(hosEntry))} sample: ${JSON.stringify(hosEntry).slice(0, 400)}`);
+      const mappedStatus = mapStatus(rawCode);
       const pickNum = (obj, ...keys) => { for (const k of keys) { const v = obj[k]; if (v != null && Number(v) !== 0) return v; } return null; };
       const hosLat = pickNum(hosEntry, 'lat', 'latitude', 'vehicle_lat', 'last_lat', 'current_lat', 'gps_lat', 'last_latitude', 'vehicle_latitude');
       const hosLon = pickNum(hosEntry, 'lon', 'lng', 'longitude', 'vehicle_lon', 'last_lon', 'current_lon', 'gps_lon', 'last_longitude', 'vehicle_longitude');
@@ -767,9 +756,6 @@ const cuShowShipping = async (ctx) => {
     const subtotal = (items.pt30 || 0) * PRICES.pt30 +
       ((items.vm || 0) + (items.obd || 0) + (items.rp || 0) + (items.p9 || 0)) * PRICES.cable +
       (items.stk || 0) * PRICES.sticker;
-    const totalStd = (subtotal + PRICES.ship_standard).toFixed(2);
-    const totalOvn = (subtotal + PRICES.ship_overnight).toFixed(2);
-
     await ctx.editMessageText(
       `🚚 <b>Select Shipping</b>`,
       {
@@ -1160,51 +1146,6 @@ const dotDetail = async (ctx) => {
   } catch (err) {
     logger.error('dotDetail error:', err);
     await ctx.reply('❌ Error loading inspection details.');
-  }
-};
-
-// ─── Platform selection (after /setapi without prefix) ───────────────────────
-
-const pendingApiSessions = new Map(); // telegram_id → { apiKey, companyName, driversRaw }
-
-const selectPlatform = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const platform = ctx.match[1]; // 'leader' or 'factor'
-    const pending = pendingApiSessions.get(ctx.from.id);
-    if (!pending) return ctx.editMessageText('Session expired. Please run /setapi again.');
-
-    const { apiKey, companyName, driversRaw } = pending;
-    pendingApiSessions.delete(ctx.from.id);
-
-    let user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    if (!user) return ctx.editMessageText('Please /start first.');
-
-    // Wipe old inspection records when switching to a different company
-    if (user.company_api_key && user.company_api_key !== apiKey) {
-      await Inspection.destroy({ where: { user_id: user.id } });
-    }
-
-    await user.update({ company_api_key: apiKey, company_name: companyName, platform });
-    user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-
-    const { syncDrivers } = require('./commandHandlers');
-    const count = await syncDrivers(user, apiKey, driversRaw);
-
-    const zelleName = platform === 'factor' ? 'FACTOR ELD LLC' : 'LEADER ELD LLC';
-    await ctx.editMessageText(
-      `✅ Connected${companyName ? ` to <b>${companyName}</b>` : ''}!\n\n` +
-      `Platform: <b>${platform === 'factor' ? 'Factor ELD' : 'Leader ELD'}</b>\n` +
-      `Zelle payments will go to: <code>${zelleName}</code>\n\n` +
-      `Synced <b>${count}</b> driver${count !== 1 ? 's' : ''}.`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [[{ text: '🏠 Open Menu', callback_data: 'go_main_menu' }]] },
-      }
-    );
-  } catch (err) {
-    logger.error('selectPlatform error:', err);
-    await ctx.reply('❌ Error saving platform. Please try /setapi again.');
   }
 };
 
@@ -2071,8 +2012,7 @@ const sendManual = async (ctx) => {
     body('Step 2 — Connect your ELD company with your Company API Key:');
     bullet('/setapi  YOUR_COMPANY_KEY');
     note('Get your key from: ELD portal  ->  Settings  ->  API Key  ->  Generate');
-    body('Step 3 — Select your ELD platform (Leader ELD or Factor ELD). ' +
-         'This sets the correct Zelle recipient for device orders.');
+    body('Step 3 — The bot will automatically detect your ELD platform (Leader ELD or Factor ELD).');
 
     // ── 3. View Drivers ───────────────────────────────────────────────────────
     h1('3.  VIEW DRIVERS  (Primary Feature)');
@@ -2221,7 +2161,6 @@ module.exports = {
   mainMenu, changeTeam, helpMenu, sendManual,
   referralMenu, referralHistory,
   referralBalanceMenu, refWithdrawCard, refCoverService,
-  selectPlatform, pendingApiSessions,
   orderPendingCustomQty, orderSessions,
   ORDER_STEPS: ORDER_QA_STEPS,
   ORDER_PROMPTS: ORDER_QA_PROMPTS,

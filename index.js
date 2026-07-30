@@ -139,9 +139,6 @@ bot.action('referral_balance',               callbackHandlers.referralBalanceMen
 bot.action('ref_withdraw_card',              callbackHandlers.refWithdrawCard);
 bot.action('ref_cover_service',              callbackHandlers.refCoverService);
 
-// ─── Platform selection ───────────────────────────────────────────────────────
-bot.action(/^platform_select_(leader|factor)$/, callbackHandlers.selectPlatform);
-
 // ─── DOT Inspection callbacks ─────────────────────────────────────────────────
 bot.action('dot_menu', callbackHandlers.dotMenu);
 bot.action(/^dot_detail_(\d+)$/, callbackHandlers.dotDetail);
