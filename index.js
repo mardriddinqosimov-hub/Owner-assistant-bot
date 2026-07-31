@@ -276,10 +276,6 @@ function setupAdminBot() {
   adminBot.action(/^ha_block_owners_([\w]+)$/,               adminBotHandlers.haBlockOwners);
   adminBot.action(/^ha_assign_block_(\d+)$/,                 adminBotHandlers.haAssignBlock);
   adminBot.action(/^ha_setblock_(\d+)_([\w]+)$/,             adminBotHandlers.haSetBlock);
-  adminBot.action(/^ha_team_members_([\w]+)$/,               adminBotHandlers.haTeamMembers);
-  adminBot.action(/^ha_member_add_([\w]+)$/,                 adminBotHandlers.haTeamMemberAdd);
-  adminBot.action(/^ha_member_remove_confirm_(\d+)$/,        adminBotHandlers.haTeamMemberRemoveConfirm);
-  adminBot.action(/^ha_member_remove_(\d+)$/,                adminBotHandlers.haTeamMemberRemove);
 
   adminBot.on('text', adminBotHandlers.haHandleText);
 }

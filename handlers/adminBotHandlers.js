@@ -116,11 +116,8 @@ const haStats = async (ctx) => {
   try {
     await ctx.answerCbQuery();
 
-    const SupportTask = require('../models/SupportTask');
-
     const [
       totalUsers, owners, safety, withCompany, blocked, leader, factor,
-      totalTasks, openTasks, closedTasks, allClosed,
     ] = await Promise.all([
       User.count(),
       User.count({ where: { role: 'owner' } }),
@@ -129,37 +126,7 @@ const haStats = async (ctx) => {
       User.count({ where: { blocked: true } }),
       User.count({ where: { platform: 'leader' } }),
       User.count({ where: { platform: 'factor' } }),
-      SupportTask.count(),
-      SupportTask.count({ where: { status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } } }),
-      SupportTask.count({ where: { status: 'closed' } }),
-      SupportTask.findAll({ where: { status: 'closed', claimed_at: { [Op.not]: null }, closed_at: { [Op.not]: null } } }),
     ]);
-
-    const fmtMs = ms => {
-      const s = Math.round(ms / 1000);
-      if (s < 60)   return `${s}s`;
-      if (s < 3600) return `${Math.round(s / 60)}m`;
-      return `${(s / 3600).toFixed(1)}h`;
-    };
-    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-
-    const memberMap = {};
-    for (const t of allClosed) {
-      const key = t.claimed_by || 'Unknown';
-      if (!memberMap[key]) memberMap[key] = { claimMs: [], resolveMs: [], count: 0 };
-      memberMap[key].count++;
-      if (t.claimed_at) memberMap[key].claimMs.push(new Date(t.claimed_at) - new Date(t.created_at));
-      if (t.closed_at)  memberMap[key].resolveMs.push(new Date(t.closed_at) - new Date(t.created_at));
-    }
-
-    let memberLines = '';
-    for (const [name, d] of Object.entries(memberMap)) {
-      const claim   = avg(d.claimMs);
-      const resolve = avg(d.resolveMs);
-      memberLines += `\n  • <b>${name}</b> — ${d.count} cases`;
-      if (claim)   memberLines += ` | claim: ${fmtMs(claim)}`;
-      if (resolve) memberLines += ` | resolve: ${fmtMs(resolve)}`;
-    }
 
     await ctx.editMessageText(
       `📊 <b>System Stats</b>\n\n` +
@@ -167,10 +134,7 @@ const haStats = async (ctx) => {
       `• Total: <b>${totalUsers}</b>  (${withCompany} with company)\n` +
       `• Owners: <b>${owners}</b>  |  Safety: <b>${safety}</b>  |  Other: <b>${totalUsers - owners - safety}</b>\n` +
       `• Leader ELD: <b>${leader}</b>  |  Factor ELD: <b>${factor}</b>\n` +
-      `• Blocked: <b>${blocked}</b>\n\n` +
-      `<b>🎧 Support</b>\n` +
-      `• Total cases: <b>${totalTasks}</b>  |  Open: <b>${openTasks}</b>  |  Closed: <b>${closedTasks}</b>` +
-      (memberLines ? `\n\n<b>👤 Per Member (closed cases)</b>${memberLines}` : ''),
+      `• Blocked: <b>${blocked}</b>`,
       { parse_mode: 'HTML', reply_markup: BACK_KB }
     );
   } catch (err) {
@@ -868,42 +832,6 @@ const haHandleText = async (ctx) => {
     );
   }
 
-  // ── Add member — step 1: nickname ───────────────────────────────────────────
-  if (session.action === 'member_add_name') {
-    const name = ctx.message.text.trim();
-    if (!name) return ctx.reply('⚠️ Nickname cannot be empty. Try again:');
-    adminSessions.set(ctx.from.id, { action: 'member_add_member_id', name, block: session.block });
-    return ctx.reply(
-      `✅ Nickname: <b>${name}</b>\n\nStep 2 of 2\n\nNow enter their <b>Member ID</b>:\n<i>(e.g. MO01)</i>`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: `ha_team_members_${session.block}` }]] } }
-    );
-  }
-
-  // ── Add member — step 2: member ID ──────────────────────────────────────────
-  if (session.action === 'member_add_member_id') {
-    adminSessions.delete(ctx.from.id);
-    const memberId = ctx.message.text.trim();
-    const blockKey = session.block;
-    const blockInfo = BLOCKS.find(b => b.key === blockKey);
-    if (!memberId) return ctx.reply('⚠️ Member ID cannot be empty.');
-    const SupportMember = require('../models/SupportMember');
-    try {
-      await SupportMember.create({ name: session.name, member_id: memberId, block: blockKey });
-      return ctx.reply(
-        `✅ <b>${session.name}  —  #${memberId}</b> added to <b>${blockInfo?.label || blockKey}</b>!\n\nThey'll appear on claim buttons for owners in this block.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '👤 Team Members', callback_data: `ha_team_members_${blockKey}` }]] } }
-      );
-    } catch (err) {
-      const isDupe = err.name === 'SequelizeUniqueConstraintError';
-      return ctx.reply(
-        isDupe
-          ? `❌ Member ID <b>#${memberId}</b> is already taken. Please use a different ID.`
-          : `❌ Failed to add member: ${err.message}`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Team Members', callback_data: `ha_team_members_${blockKey}` }]] } }
-      );
-    }
-  }
-
   if (session.action !== 'broadcast') return;
 
   adminSessions.delete(ctx.from.id);
@@ -1362,7 +1290,6 @@ const haBlocks = async (ctx) => {
   }
 };
 
-// Tapping a block → two options: Company Owners / Team Members
 const haBlockDetail = async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -1371,21 +1298,14 @@ const haBlockDetail = async (ctx) => {
     const blockInfo    = BLOCKS.find(b => b.key === blockKey);
     const title        = isUnassigned ? '❓ Unassigned' : blockInfo?.label || blockKey;
 
-    const SupportMember = require('../models/SupportMember');
-    const [ownerCount, memberCount] = await Promise.all([
-      isUnassigned
-        ? User.count({ where: { block: null, deleted_at: null } })
-        : User.count({ where: { block: blockKey, deleted_at: null } }),
-      isUnassigned ? 0 : SupportMember.count({ where: { block: blockKey } }),
-    ]);
+    const ownerCount = isUnassigned
+      ? await User.count({ where: { block: null, deleted_at: null } })
+      : await User.count({ where: { block: blockKey, deleted_at: null } });
 
     const kb = [
       [{ text: `👥 Company Owners  (${ownerCount})`, callback_data: `ha_block_owners_${blockKey}` }],
+      [{ text: '◀️ Blocks', callback_data: 'ha_blocks' }],
     ];
-    if (!isUnassigned) {
-      kb.push([{ text: `👤 Team Members  (${memberCount})`, callback_data: `ha_team_members_${blockKey}` }]);
-    }
-    kb.push([{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]);
 
     await ctx.editMessageText(
       `🏷 <b>${title}</b>\n\nSelect a section:`,
@@ -1430,94 +1350,6 @@ const haBlockOwners = async (ctx) => {
     );
   } catch (err) {
     logger.error('haBlockOwners error:', err);
-  }
-};
-
-// ─── Team Members (per block) ─────────────────────────────────────────────────
-
-const haTeamMembers = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const blockKey  = ctx.match[1];
-    const blockInfo = BLOCKS.find(b => b.key === blockKey);
-    const title     = blockInfo?.label || blockKey;
-
-    const SupportMember = require('../models/SupportMember');
-    const members = await SupportMember.findAll({ where: { block: blockKey }, order: [['id', 'ASC']] });
-
-    const buttons = members.map(m => [{
-      text: `👤 ${m.name}  —  #${m.member_id}`,
-      callback_data: `ha_member_remove_confirm_${m.id}`,
-    }]);
-    buttons.push([{ text: '➕ Add Member', callback_data: `ha_member_add_${blockKey}` }]);
-    buttons.push([{ text: '◀️ Back', callback_data: `ha_block_view_${blockKey}` }]);
-
-    await ctx.editMessageText(
-      `👤 <b>${title} — Team Members</b>  (${members.length})\n\n` +
-      (members.length ? `Tap a member to remove them.` : `No members yet. Tap <b>➕ Add Member</b> to add one.`),
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: buttons } }
-    );
-  } catch (err) {
-    logger.error('haTeamMembers error:', err);
-  }
-};
-
-const haTeamMemberAdd = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const blockKey = ctx.match[1];
-    adminSessions.set(ctx.from.id, { action: 'member_add_name', block: blockKey });
-    await ctx.editMessageText(
-      `➕ <b>Add Team Member</b>\n\nStep 1 of 2\n\nEnter the member's <b>nickname</b>:\n<i>(e.g. LEADER MO)</i>`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: `ha_team_members_${blockKey}` }]] } }
-    );
-  } catch (err) {
-    logger.error('haTeamMemberAdd error:', err);
-  }
-};
-
-const haTeamMemberRemoveConfirm = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const SupportMember = require('../models/SupportMember');
-    const id = parseInt(ctx.match[1], 10);
-    const m  = await SupportMember.findByPk(id);
-    if (!m) return ctx.editMessageText('❌ Member not found.', { reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'ha_blocks' }]] } });
-
-    await ctx.editMessageText(
-      `🗑 <b>Remove Member</b>\n\nAre you sure you want to remove:\n\n👤 <b>${m.name}</b>  —  #${m.member_id}\n\nThey will no longer appear on claim buttons.`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '✅ Yes, Remove', callback_data: `ha_member_remove_${id}` }],
-            [{ text: '❌ Cancel',      callback_data: `ha_team_members_${m.block}` }],
-          ],
-        },
-      }
-    );
-  } catch (err) {
-    logger.error('haTeamMemberRemoveConfirm error:', err);
-  }
-};
-
-const haTeamMemberRemove = async (ctx) => {
-  try {
-    await ctx.answerCbQuery('Member removed.');
-    const SupportMember = require('../models/SupportMember');
-    const id = parseInt(ctx.match[1], 10);
-    const m  = await SupportMember.findByPk(id);
-    if (!m) {
-      return ctx.editMessageText('❌ Member not found or already removed.', {
-        reply_markup: { inline_keyboard: [[{ text: '◀️ Blocks', callback_data: 'ha_blocks' }]] },
-      });
-    }
-    const blockKey = m.block;
-    await SupportMember.destroy({ where: { id } });
-    ctx.match = ['', blockKey];
-    await haTeamMembers(ctx);
-  } catch (err) {
-    logger.error('haTeamMemberRemove error:', err);
   }
 };
 
@@ -1596,7 +1428,6 @@ module.exports = {
   haAdmins, haAdminDetail, haAdminAdd, haAdminChooseType, haAdminSetRole, haAdminRemove,
   haBlocks, haBlockDetail, haBlockOwners,
   haAssignBlock, haSetBlock,
-  haTeamMembers, haTeamMemberAdd, haTeamMemberRemoveConfirm, haTeamMemberRemove,
   haHandleText,
   notifyNewOrder,
   ADMIN_ROLES,
