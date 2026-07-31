@@ -19,6 +19,7 @@ const {
   buildOrderSummary,
   specialTaskSessions,
   driverSearchSessions,
+  renderDriverDetails,
 } = require('./callbackHandlers');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
@@ -513,6 +514,38 @@ const handleText = async (ctx) => {
           }
           return;
         }
+      }
+    }
+  }
+
+  // ── Quick driver search (type any name in main menu) ──────────────────────
+  const user = await User.findOne({ where: { telegram_id: userId } });
+  if (user) {
+    const query = ctx.message.text.trim().toLowerCase();
+    if (query.length >= 2) {
+      const allDrivers = await Driver.findAll({ where: { user_id: user.id } });
+      const matches = allDrivers.filter(d =>
+        d.driver_name.toLowerCase().includes(query) ||
+        (d.truck_number && d.truck_number.toLowerCase().includes(query))
+      );
+      if (matches.length === 1) {
+        return renderDriverDetails(ctx, matches[0].driver_id, false);
+      }
+      if (matches.length > 1) {
+        const STATUS_EMOJI = {
+          'DRIVING': '🟢', 'ON DUTY': '🔵', 'SLEEPER BERTH': '🟠',
+          'OFF DUTY': '⚫', 'PERSONAL CONVEYANCE': '🟡', 'YARD MOVE': '🟤',
+        };
+        return ctx.reply(
+          `🔍 <b>${matches.length} drivers found for "${query}":</b>`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: { inline_keyboard: matches.map(d => [{
+              text: `${STATUS_EMOJI[d.current_status] || '⚫'}  ${d.driver_name}${d.truck_number ? `  ·  ${d.truck_number}` : ''}`,
+              callback_data: `driver_details_${d.driver_id}`,
+            }])},
+          }
+        );
       }
     }
   }

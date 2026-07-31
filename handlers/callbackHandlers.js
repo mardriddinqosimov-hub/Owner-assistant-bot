@@ -2179,6 +2179,7 @@ const sendManual = async (ctx) => {
 };
 
 module.exports = {
+  renderDriverDetails,
   driverDetails, driverRefresh, driversList, driversListRefresh, driverLocation,
   driversCatShow, driversCatRefresh, driverSearch, driverSearchCancel, driverSearchSessions,
   orderStart, orderNew,
