@@ -4,7 +4,6 @@ const Driver = require('../models/Driver');
 const Order = require('../models/Order');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const notifService = require('../services/notificationService');
-const { memberKeyboard } = require('./supportBotHandlers');
 const { notifyHeadAdmin } = notifService;
 const {
   orderSessions,
@@ -17,7 +16,6 @@ const {
   cardSessions,
   showConfirmation,
   buildOrderSummary,
-  specialTaskSessions,
   driverSearchSessions,
   renderDriverDetails,
 } = require('./callbackHandlers');
@@ -271,253 +269,6 @@ const handleText = async (ctx) => {
     return ctx.reply('📎 Please send a <b>photo or PDF</b> of your payment screenshot.', { parse_mode: 'HTML' });
   }
 
-  // ── Special Task: owner typing their message request ──────────────────────
-  if (specialTaskSessions.get(userId) === 'awaiting_text') {
-    specialTaskSessions.delete(userId);
-    const requestText = ctx.message.text.trim();
-
-    if (!requestText) {
-      specialTaskSessions.set(userId, 'awaiting_text');
-      return ctx.reply('⚠️ Please enter a non-empty message. Try again:');
-    }
-
-    const user = await User.findOne({ where: { telegram_id: userId } });
-    if (!user) return ctx.reply('Please /start first.');
-
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-    const { Op } = require('sequelize');
-
-    // Only relay if support is actively working — in_process or awaiting_approval
-    const claimedTask = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['in_process', 'awaiting_approval'] } },
-      order: [['created_at', 'DESC']],
-    });
-    if (claimedTask) {
-      let relayed = false;
-      if (supportBot) {
-        let existingTopicId = claimedTask.topic_id;
-        if (!existingTopicId) {
-          const priorWithTopic = await SupportTask.findOne({
-            where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
-            order: [['created_at', 'DESC']],
-          });
-          if (priorWithTopic) {
-            existingTopicId = priorWithTopic.topic_id;
-            await claimedTask.update({ topic_id: existingTopicId });
-          }
-        }
-        if (existingTopicId) {
-          const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
-          try {
-            await supportBot.telegram.sendMessage(
-              SUPPORT_CHAT_ID,
-              `👤 <b>${senderName}:</b>\n${requestText}`,
-              { parse_mode: 'HTML', message_thread_id: existingTopicId }
-            );
-            relayed = true;
-          } catch (err) {
-            logger.warn('Owner→topic relay (specialTask) failed — treating task as stale:', err.message);
-          }
-        }
-      }
-      if (relayed) {
-        return ctx.reply(
-          `✅ <b>Message sent to support!</b>\n\nThe team will see it in your open request.`,
-          { parse_mode: 'HTML' }
-        );
-      }
-      // Relay failed — task is stale; cancel it and fall through to create a fresh one
-      await claimedTask.update({ status: 'cancelled', updated_at: new Date() });
-    }
-
-    // Cancel any remaining stale unclaimed tasks — owner wants a fresh start
-    await SupportTask.update(
-      { status: 'cancelled', updated_at: new Date() },
-      { where: { owner_telegram_id: String(userId), status: 'pending' } }
-    );
-
-    const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
-
-    // Find this owner's permanent topic (any past task that has a topic_id)
-    const priorTask = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
-      order: [['created_at', 'DESC']],
-    });
-    let topicId = priorTask?.topic_id || null;
-
-    const task = await SupportTask.create({
-      owner_user_id:     user.id,
-      owner_telegram_id: String(userId),
-      owner_name:        ownerLabel,
-      type:              'message',
-      request_text:      requestText,
-      status:            'pending',
-      topic_id:          topicId,
-      created_at:        new Date(),
-      updated_at:        new Date(),
-    });
-
-    if (supportBot) {
-      try {
-        if (!topicId) {
-          // First-ever request from this owner — create their permanent topic
-          const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-          topicId = topic.message_thread_id;
-          await task.update({ topic_id: topicId });
-        }
-
-        const requestMsgText =
-          `🔔 <b>New Request</b>\n\n` +
-          `👤 Owner: <b>${ownerLabel}</b>\n` +
-          `🏢 Company: ${user.company_name || '—'}\n\n` +
-          `📝 Request:\n${requestText}`;
-        const requestMsgOpts = {
-          parse_mode: 'HTML',
-          message_thread_id: topicId,
-          reply_markup: { inline_keyboard: await memberKeyboard(task.id, task.owner_telegram_id) },
-        };
-
-        // Post the new request into the owner's topic — if it fails, create a fresh topic and retry once
-        try {
-          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, requestMsgText, requestMsgOpts);
-        } catch (topicErr) {
-          logger.warn(`Topic ${topicId} is dead (${topicErr.message}) — creating a new one`);
-          const newTopic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-          topicId = newTopic.message_thread_id;
-          await task.update({ topic_id: topicId });
-          requestMsgOpts.message_thread_id = topicId;
-          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, requestMsgText, requestMsgOpts);
-        }
-
-        // Escalation reminders: 30s, 2min, 5min
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `⚠️ <b>Unclaimed for 30 seconds</b> — please claim this request!`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 30 * 1000);
-
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🚨 <b>Still unclaimed — 2 minutes passed!</b> Please claim this request.`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 2 * 60 * 1000);
-
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔴 <b>URGENT — 5 minutes unclaimed!</b> Owner is waiting. Handle this immediately.`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 5 * 60 * 1000);
-
-      } catch (err) {
-        logger.error(`Support topic post failed (task ${task.id}): ${err.message}`);
-        try {
-          await supportBot.telegram.sendMessage(
-            SUPPORT_CHAT_ID,
-            `⚠️ <b>New Request</b> (topic post failed)\n\n` +
-            `👤 Owner: <b>${ownerLabel}</b>\n` +
-            `🏢 Company: ${user.company_name || '—'}\n\n` +
-            `📝 Request:\n${requestText}\n\n` +
-            `Task ID: <code>${task.id}</code>`,
-            { parse_mode: 'HTML' }
-          );
-        } catch (fallbackErr) {
-          logger.error('Support fallback send also failed:', fallbackErr.message);
-        }
-      }
-    } else {
-      logger.error('SUPPORT_SEND_FAIL: supportBot is null');
-    }
-
-    return ctx.reply(
-      `✅ <b>Request sent to support!</b>\n\nThe team will handle it shortly. Feel free to send more details here — they'll appear in your support thread.`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  }
-
-  // ── Active support session: relay owner messages to the support topic ──────
-  {
-    const SupportTask = require('../models/SupportTask');
-    const { Op } = require('sequelize');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const activeTask = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-    });
-    if (activeTask) {
-      const supBot = getSupportBot();
-      if (supBot) {
-        let topicId = activeTask.topic_id;
-
-        if (!topicId) {
-          // Find any existing topic this owner already has before creating a new one
-          const priorWithTopic = await SupportTask.findOne({
-            where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
-            order: [['created_at', 'DESC']],
-          });
-          if (priorWithTopic) {
-            topicId = priorWithTopic.topic_id;
-            await activeTask.update({ topic_id: topicId });
-          } else {
-            // Truly first-ever topic for this owner
-            try {
-              const topic = await supBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${activeTask.owner_name || 'Owner'}`);
-              topicId = topic.message_thread_id;
-              await activeTask.update({ topic_id: topicId });
-              await supBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔔 <b>Existing Request</b>\n\n👤 Owner: <b>${activeTask.owner_name}</b>\n\n📝 Request:\n${activeTask.request_text || '(no text)'}`,
-                { parse_mode: 'HTML', message_thread_id: topicId,
-                  reply_markup: { inline_keyboard: await memberKeyboard(activeTask.id, activeTask.owner_telegram_id) } }
-              );
-            } catch (err) {
-              logger.warn('Lazy topic creation (relay) failed:', err.message);
-            }
-          }
-        }
-
-        if (topicId) {
-          const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
-          let delivered = false;
-          try {
-            await supBot.telegram.sendMessage(
-              SUPPORT_CHAT_ID,
-              `👤 <b>${senderName}:</b>\n${ctx.message.text}`,
-              { parse_mode: 'HTML', message_thread_id: topicId }
-            );
-            delivered = true;
-          } catch (err) {
-            logger.warn('Owner→topic relay failed:', err.message);
-          }
-          return;
-        }
-      }
-    }
-  }
-
   // ── Quick driver search (type any name in main menu) ──────────────────────
   const user = await User.findOne({ where: { telegram_id: userId } });
   if (user) {
@@ -553,84 +304,15 @@ const handleText = async (ctx) => {
   await ctx.reply('Use /help to see available commands.');
 };
 
-// Relay owner photo/document to active support topic
-async function relaySupportMedia(ctx, fileId, type) {
-  const userId = ctx.from.id;
-  const SupportTask = require('../models/SupportTask');
-  const { Op } = require('sequelize');
-  const { getSupportBot } = require('../services/notificationService');
-  const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-  const activeTask = await SupportTask.findOne({
-    where: { owner_telegram_id: String(userId), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-  });
-  if (!activeTask) return false;
-  const supBot = getSupportBot();
-  if (!supBot) return false;
-
-  // Recover missing topic_id — same logic as text relay path
-  if (!activeTask.topic_id) {
-    const priorWithTopic = await SupportTask.findOne({
-      where: { owner_telegram_id: String(userId), topic_id: { [Op.not]: null } },
-      order: [['created_at', 'DESC']],
-    });
-    if (priorWithTopic) {
-      await activeTask.update({ topic_id: priorWithTopic.topic_id });
-    } else {
-      try {
-        const ownerLabel = activeTask.owner_name || 'Owner';
-        const topic = await supBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-        await activeTask.update({ topic_id: topic.message_thread_id });
-      } catch (err) {
-        logger.warn('Media relay: lazy topic creation failed:', err.message);
-        return false;
-      }
-    }
-    await activeTask.reload();
-  }
-  if (!activeTask.topic_id) return false;
-  const senderName = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'Owner';
-  const caption = `👤 <b>${senderName}:</b>`;
-  const opts = { caption, parse_mode: 'HTML', message_thread_id: activeTask.topic_id };
-  try {
-    // file_ids are bot-specific — resolve via mainBot token so supBot can re-upload
-    const fileInfo = await ctx.telegram.getFile(fileId);
-    const fileUrl  = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${fileInfo.file_path}`;
-
-    if (type === 'photo') {
-      await supBot.telegram.sendPhoto(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
-    } else if (type === 'voice') {
-      await supBot.telegram.sendVoice(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
-    } else {
-      await supBot.telegram.sendDocument(SUPPORT_CHAT_ID, { url: fileUrl }, opts);
-    }
-  } catch (err) {
-    logger.warn('Owner→topic media relay failed:', err.message);
-  }
-  return true;
-}
-
 const handleVoice = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
-  const userId = ctx.from.id;
-  if (specialTaskSessions.get(userId) === 'awaiting_text') {
-    return ctx.reply('📝 Please type your request as text — voice messages cannot be used as the initial message.');
-  }
-  const fileId = ctx.message.voice.file_id;
-  await relaySupportMedia(ctx, fileId, 'voice');
 };
 
 const handlePhoto = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
-  if (specialTaskSessions.get(userId) === 'awaiting_text') {
-    return ctx.reply('📝 Please type your request as text — photos cannot be used as the initial message.');
-  }
   const session = orderSessions.get(userId);
-  if (!session || session.step !== 'payment') {
-    const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-    await relaySupportMedia(ctx, fileId, 'photo');
-    return;
-  }
+  if (!session || session.step !== 'payment') return;
 
   try {
     const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -645,17 +327,10 @@ const handlePhoto = async (ctx) => {
 const handleDocument = async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   const userId = ctx.from.id;
-  if (specialTaskSessions.get(userId) === 'awaiting_text') {
-    return ctx.reply('📝 Please type your request as text — files cannot be used as the initial message.');
-  }
   const session = orderSessions.get(userId);
   if (!session || session.step !== 'payment') {
-    const fileId = ctx.message.document.file_id;
-    const relayed = await relaySupportMedia(ctx, fileId, 'document');
-    if (!relayed) {
-      logger.debug(`Document from ${userId} (no active payment or support session)`);
-      await ctx.reply('Use /help to see available commands.');
-    }
+    logger.debug(`Document from ${userId} (no active payment session)`);
+    await ctx.reply('Use /help to see available commands.');
     return;
   }
 

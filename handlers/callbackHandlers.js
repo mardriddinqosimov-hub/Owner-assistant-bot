@@ -1416,352 +1416,26 @@ const refCoverService = async (ctx) => {
   }
 };
 
-// ─── Special Task ─────────────────────────────────────────────────────────────
-
-const specialTaskSessions  = new Map(); // userId → 'awaiting_text'
-
-const specialTaskMenu = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      `🛠️ <b>Special Task</b>\n\nWhat type of request do you have for the support team?`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '💬 Message',      callback_data: 'special_task_message' }],
-            [{ text: '📞 Call',         callback_data: 'special_task_call' }],
-            [{ text: '📋 My Requests',  callback_data: 'support_request_history' }],
-            [{ text: '◀️ Back',         callback_data: 'main_menu' }],
-          ],
-        },
-      }
-    );
-  } catch (err) { logger.error('specialTaskMenu error:', err); }
-};
-
-const specialTaskMessage = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    specialTaskSessions.set(ctx.from.id, 'awaiting_text');
-    await ctx.editMessageText(
-      `💬 <b>Message Request</b>\n\nType your request for the support team:`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'main_menu' }]] },
-      }
-    );
-  } catch (err) { logger.error('specialTaskMessage error:', err); }
-};
-
-const specialTaskCall = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
-    if (!user) return ctx.reply('Please /start first.');
-
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-
-    const ownerLabel = user.owner_name || user.company_name || ctx.from.first_name || 'Owner';
-    const ownerTgId  = String(ctx.from.id);
-    const username   = ctx.from.username;
-
-    // #2 Duplicate guard
-    const existingCall = await SupportTask.findOne({
-      where: { owner_telegram_id: ownerTgId, status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-    });
-    if (existingCall) {
-      return ctx.editMessageText(
-        `⚠️ <b>You already have an open support request.</b>\n\nJust type in the chat and your message goes directly to the support team.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-      );
-    }
-
-    // Reuse owner's permanent topic if one exists
-    const priorCallTask = await SupportTask.findOne({
-      where: { owner_telegram_id: ownerTgId, topic_id: { [Op.not]: null } },
-      order: [['created_at', 'DESC']],
-    });
-    let callTopicId = priorCallTask?.topic_id || null;
-
-    const task = await SupportTask.create({
-      owner_user_id:     user.id,
-      owner_telegram_id: ownerTgId,
-      owner_name:        ownerLabel,
-      type:              'call',
-      status:            'pending',
-      topic_id:          callTopicId,
-      created_at:        new Date(),
-      updated_at:        new Date(),
-    });
-
-    if (supportBot) {
-      try {
-        if (!callTopicId) {
-          const topic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-          callTopicId = topic.message_thread_id;
-          await task.update({ topic_id: callTopicId });
-        }
-        let topicId = callTopicId;
-
-        const callUrl = username ? `https://t.me/${username}` : `tg://user?id=${ownerTgId}`;
-
-        const callMsgText =
-          `📞 <b>Call Request</b>\n\n` +
-          `👤 Owner: <b>${ownerLabel}</b>\n` +
-          `🏢 Company: ${user.company_name || '—'}\n` +
-          `🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n👤 Username: @${username}` : ''}\n\n` +
-          `Claim the case, then tap <b>📞 Call Owner</b> to open their Telegram profile and call them directly.\n\n` +
-          `When done, type <b>Done #YourID</b> in this topic to close the case.`;
-        const { memberKeyboard } = require('./supportBotHandlers');
-        const callMsgOpts = {
-          parse_mode: 'HTML',
-          message_thread_id: topicId,
-          reply_markup: {
-            inline_keyboard: [
-              ...(await memberKeyboard(task.id, ownerTgId)),
-              [{ text: '📞 Call Owner', url: callUrl }],
-            ],
-          },
-        };
-
-        try {
-          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, callMsgText, callMsgOpts);
-        } catch (topicErr) {
-          logger.warn(`Call topic ${topicId} is dead (${topicErr.message}) — creating a new one`);
-          const newTopic = await supportBot.telegram.createForumTopic(SUPPORT_CHAT_ID, `👤 ${ownerLabel}`);
-          topicId = newTopic.message_thread_id;
-          await task.update({ topic_id: topicId });
-          callMsgOpts.message_thread_id = topicId;
-          await supportBot.telegram.sendMessage(SUPPORT_CHAT_ID, callMsgText, callMsgOpts);
-        }
-
-        // Escalation reminders: 30s, 2min, 5min
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `⚠️ <b>Unclaimed for 30 seconds</b> — please claim this call request!`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 30 * 1000);
-
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🚨 <b>Still unclaimed — 2 minutes passed!</b> Please claim this call request.`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 2 * 60 * 1000);
-
-        setTimeout(async () => {
-          try {
-            const fresh = await SupportTask.findByPk(task.id);
-            if (fresh && fresh.status === 'pending') {
-              await supportBot.telegram.sendMessage(
-                SUPPORT_CHAT_ID,
-                `🔴 <b>URGENT — 5 minutes unclaimed!</b> Owner is waiting. Handle this immediately.`,
-                { parse_mode: 'HTML', message_thread_id: topicId }
-              );
-            }
-          } catch {}
-        }, 5 * 60 * 1000);
-      } catch (err) {
-        logger.error(`Call topic creation failed (task ${task.id}): ${err.message}`);
-        try {
-          await supportBot.telegram.sendMessage(
-            SUPPORT_CHAT_ID,
-            `⚠️ <b>Call Request</b> (topic creation failed)\n\n` +
-            `👤 Owner: <b>${ownerLabel}</b>\n🆔 Telegram ID: <code>${ownerTgId}</code>${username ? `\n@${username}` : ''}`,
-            { parse_mode: 'HTML' }
-          );
-        } catch {}
-      }
-    }
-
-    await ctx.editMessageText(
-      `📞 <b>Call request sent!</b>\n\nThe support team has been notified and will call you on Telegram shortly. Stay available!`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  } catch (err) { logger.error('specialTaskCall error:', err); }
-};
-
-const taskCallEnded = async (ctx) => {
-  try {
-    await ctx.answerCbQuery('Got it!');
-    const taskId = parseInt(ctx.match[1], 10);
-
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-
-    const task = await SupportTask.findByPk(taskId);
-    if (!task) return;
-
-    await task.update({ status: 'call_ended', updated_at: new Date() });
-
-    if (supportBot && task.topic_id) {
-      try {
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
-          `📞 <b>Call Ended</b>\n\nOwner confirmed the call is done.\n\nType <code>Done #YourMemberID</code> to close the case and log your ID.`,
-          { parse_mode: 'HTML', message_thread_id: task.topic_id }
-        );
-      } catch (err) { logger.warn('Call-ended notify failed:', err.message); }
-    }
-
-    await ctx.editMessageText(
-      `✅ <b>Call ended!</b>\n\nThe support team has been notified. The case will be fully closed once the member logs their ID.`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  } catch (err) { logger.error('taskCallEnded error:', err); }
-};
-
-const taskOwnerApproved = async (ctx) => {
-  try {
-    await ctx.answerCbQuery('Thank you!');
-    const taskId = parseInt(ctx.match[1], 10);
-
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-
-    const task = await SupportTask.findByPk(taskId);
-    if (!task) return;
-
-    const closedAtDate = new Date();
-    await task.update({ status: 'closed', closed_at: closedAtDate, updated_at: closedAtDate });
-
-    if (supportBot && task.topic_id) {
-      try {
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
-          `✅ <b>Case Fully Closed</b>\n\nOwner confirmed the request is fully done.`,
-          { parse_mode: 'HTML', message_thread_id: task.topic_id }
-        );
-      } catch (err) {
-        logger.warn('Close topic failed:', err.message);
-      }
-
-      // Post case summary to Fully Done topic
-      const TOPIC_FULLY_DONE = parseInt(process.env.TOPIC_FULLY_DONE || '7', 10);
-      const closedAt = closedAtDate.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
-      const handledBy = task.claimed_by || '—';
-      const memberId  = task.member_id ? `#${task.member_id}` : '—';
-      const durationMs   = closedAtDate - new Date(task.created_at);
-      const durationMins = Math.round(durationMs / 60000);
-      const durationStr  = durationMins >= 60
-        ? `${Math.floor(durationMins / 60)}h ${durationMins % 60}m`
-        : `${durationMins}m`;
-      try {
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
-          `✅ <b>Case Closed</b>\n\n` +
-          `👤 Owner: <b>${task.owner_name}</b>\n` +
-          `📝 Request: ${task.request_text || '—'}\n\n` +
-          `🛠 Handled by: <b>${handledBy}</b>\n` +
-          `🆔 Member ID: <b>${memberId}</b>\n` +
-          `⏱ Response time: <b>${durationStr}</b>\n` +
-          `🕐 Closed at: ${closedAt}`,
-          { parse_mode: 'HTML', message_thread_id: TOPIC_FULLY_DONE }
-        );
-      } catch (err) {
-        logger.warn('Fully Done topic post failed:', err.message);
-      }
-    }
-
-    await ctx.editMessageText(
-      `✅ <b>All Done!</b>\n\nYour request has been closed successfully. Thank you!`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  } catch (err) { logger.error('taskOwnerApproved error:', err); }
-};
-
-const taskNotDone = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const taskId = parseInt(ctx.match[1], 10);
-
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-
-    const task = await SupportTask.findByPk(taskId);
-    if (!task) return;
-
-    await task.update({ status: 'in_process', updated_at: new Date() });
-
-    if (supportBot && task.topic_id) {
-      try {
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
-          `⚠️ <b>Owner says request is not done yet.</b>\n\nPlease continue and click "Mark as Done" when fully resolved.`,
-          {
-            parse_mode: 'HTML',
-            message_thread_id: task.topic_id,
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '✅ Mark as Done', callback_data: `sup_done_${taskId}` }],
-              ],
-            },
-          }
-        );
-      } catch {}
-    }
-
-    await ctx.editMessageText(
-      `⚠️ <b>Got it!</b>\n\nThe support team has been notified to continue. You'll be asked again when it's done.`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  } catch (err) { logger.error('taskNotDone error:', err); }
-};
-
 // ─── Main Menu / Help ─────────────────────────────────────────────────────────
 
 const mainMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     registrationSessions.delete(ctx.from.id);
-    specialTaskSessions.delete(ctx.from.id);
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     const hasKey = user && !!user.company_api_key;
     const companyLine = hasKey
       ? `✅ Connected to <b>${user.company_name || 'ELD'}</b>`
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
-    // #6 — check for active support session
-    const SupportTask = require('../models/SupportTask');
-    const activeTask = user ? await SupportTask.findOne({
-      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-    }) : null;
-
     const keyboard = [
       [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
       [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
       [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
       [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
-      [{ text: '🛠️ Special Task',    callback_data: 'special_task_menu' }],
       [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
       [{ text: '❓ Help',            callback_data: 'help_menu' }],
     ];
-    if (activeTask) {
-      keyboard.unshift([{ text: '🔴 Active Support Session', callback_data: 'support_status' }]);
-    }
 
     await ctx.editMessageText(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\nELD Driver Monitoring &amp; Device Orders\n\n${companyLine}`,
@@ -1770,133 +1444,6 @@ const mainMenu = async (ctx) => {
   } catch (err) {
     logger.error('mainMenu error:', err);
   }
-};
-
-const supportStatus = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const SupportTask = require('../models/SupportTask');
-    const task = await SupportTask.findOne({
-      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-    });
-    if (!task) {
-      return ctx.editMessageText(
-        `✅ No active support requests.`,
-        { reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-      );
-    }
-    const statusLabel = {
-      pending:            '🕐 Waiting to be claimed by a support member',
-      in_process:         `⏳ In progress — handled by ${task.claimed_by || 'support'}`,
-      awaiting_approval:  '✅ Support marked as done — please confirm',
-    }[task.status] || task.status;
-
-    await ctx.editMessageText(
-      `🔴 <b>Active Support Session</b>\n\n` +
-      `📝 Request: ${task.request_text || '(call request)'}\n\n` +
-      `Status: ${statusLabel}`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🏠 Main Menu',        callback_data: 'main_menu' }],
-            [{ text: '❌ Cancel Session',   callback_data: 'support_cancel_session' }],
-          ],
-        },
-      }
-    );
-  } catch (err) {
-    logger.error('supportStatus error:', err);
-  }
-};
-
-const cancelSupportSession = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const SupportTask = require('../models/SupportTask');
-    const { getSupportBot } = require('../services/notificationService');
-    const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID || '-1004396785239';
-    const supportBot = getSupportBot();
-
-    const task = await SupportTask.findOne({
-      where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } },
-      order: [['updated_at', 'DESC']],
-    });
-    if (!task) {
-      return ctx.editMessageText(
-        `✅ No active support session found.`,
-        { reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-      );
-    }
-
-    // Cancel ALL active tasks for this owner, not just the first one found
-    await SupportTask.update(
-      { status: 'cancelled', updated_at: new Date() },
-      { where: { owner_telegram_id: String(ctx.from.id), status: { [Op.in]: ['pending', 'in_process', 'awaiting_approval'] } } }
-    );
-
-    if (supportBot && task.topic_id) {
-      try {
-        await supportBot.telegram.sendMessage(
-          SUPPORT_CHAT_ID,
-          `❌ <b>Session Cancelled</b>\n\nOwner cancelled this request.`,
-          { parse_mode: 'HTML', message_thread_id: task.topic_id }
-        );
-      } catch (err) {
-        logger.warn('cancelSupportSession topic close failed:', err.message);
-      }
-    }
-
-    await ctx.editMessageText(
-      `❌ <b>Session Cancelled</b>\n\nYour support request has been cancelled.`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏠 Main Menu', callback_data: 'main_menu' }]] } }
-    );
-  } catch (err) {
-    logger.error('cancelSupportSession error:', err);
-  }
-};
-
-const ownerRequestsHistory = async (ctx) => {
-  try {
-    await ctx.answerCbQuery();
-    const SupportTask = require('../models/SupportTask');
-    const tasks = await SupportTask.findAll({
-      where: { owner_telegram_id: String(ctx.from.id) },
-      order: [['created_at', 'DESC']],
-      limit: 5,
-    });
-
-    if (!tasks.length) {
-      return ctx.editMessageText(
-        `📋 <b>My Requests</b>\n\nYou have no support requests yet.`,
-        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'special_task_menu' }]] } }
-      );
-    }
-
-    const statusLabel = {
-      pending:           '🕐 Waiting',
-      in_process:        '⏳ In Progress',
-      awaiting_approval: '✅ Awaiting Confirmation',
-      closed:            '✅ Closed',
-      cancelled:         '❌ Cancelled',
-      call_ended:        '📞 Call Ended',
-    };
-
-    const lines = tasks.map((t, i) => {
-      const date = new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const type = t.type === 'call' ? '📞' : '💬';
-      const status = statusLabel[t.status] || t.status;
-      const preview = t.request_text
-        ? t.request_text.slice(0, 50) + (t.request_text.length > 50 ? '…' : '')
-        : '(call request)';
-      return `${i + 1}. ${type} <b>${date}</b> — ${status}\n    ${preview}`;
-    });
-
-    await ctx.editMessageText(
-      `📋 <b>My Last ${tasks.length} Request${tasks.length > 1 ? 's' : ''}</b>\n\n${lines.join('\n\n')}`,
-      { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '◀️ Back', callback_data: 'special_task_menu' }]] } }
-    );
-  } catch (err) { logger.error('ownerRequestsHistory error:', err); }
 };
 
 const changeTeam = async (ctx) => {
@@ -2127,24 +1674,16 @@ const sendManual = async (ctx) => {
     bullet('View total referral earnings and individual referral history');
     bullet('Request a cash payout or apply the credit toward your next device order');
 
-    // ── 7. Special Task ───────────────────────────────────────────────────────
-    h1('7.  SPECIAL TASK');
-    body(
-      'Submit a custom request to the support team for anything that does not fit a standard ' +
-      'device order — account changes, bulk orders, custom cables, or other questions. ' +
-      'Describe your need and the team will respond directly in Telegram.'
-    );
-
-    // ── 8. Change Team ────────────────────────────────────────────────────────
-    h1('8.  CHANGE TEAM');
+    // ── 7. Change Team ────────────────────────────────────────────────────────
+    h1('7.  CHANGE TEAM');
     body(
       'Multiple people can monitor the same company (e.g. owner + safety officer). ' +
       'Each person connects to their own Telegram account and links the same Company API Key. ' +
       'Use "Change Team" to update your API key or switch to a different company.'
     );
 
-    // ── 9. Commands ───────────────────────────────────────────────────────────
-    h1('9.  COMMANDS REFERENCE');
+    // ── 8. Commands ───────────────────────────────────────────────────────────
+    h1('8.  COMMANDS REFERENCE');
     y += 4;
     const CMDS = [
       ['/start',      'Open the main menu'],
@@ -2198,9 +1737,4 @@ module.exports = {
   registrationSessions, REG_STEPS, REG_PROMPTS,
   cardSessions,
   buildOrderSummary, showConfirmation,
-  specialTaskMenu, specialTaskMessage, specialTaskCall,
-  taskCallEnded, taskOwnerApproved, taskNotDone,
-  specialTaskSessions,
-  supportStatus, cancelSupportSession,
-  ownerRequestsHistory,
 };
