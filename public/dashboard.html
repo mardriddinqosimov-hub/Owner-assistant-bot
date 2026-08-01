@@ -490,6 +490,10 @@
     }
     .export-info h3 { font-size: 15px; font-weight: 600; }
     .export-info p  { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .export-range-select {
+      background: var(--hover); border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; height: 36px;
+    }
 
     /* ── Users page ────────────────────────────────────────── */
     .users-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:22px; }
@@ -703,10 +707,11 @@
 
       <div class="export-card">
         <div class="export-info">
-          <h3>📄 Monthly Report Export</h3>
-          <p>Download the current month's orders with all customers and revenue details.</p>
+          <h3>📄 Report Export</h3>
+          <p id="export-range-desc">Select a period and export orders with all customer and revenue details.</p>
         </div>
-        <div style="display:flex;gap:10px;flex-shrink:0">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;flex-shrink:0">
+          <select id="export-range" class="export-range-select" onchange="updateExportDesc()"></select>
           <button class="btn btn-blue" onclick="exportPDF()" id="export-btn">⬇️ Export PDF</button>
           <button class="btn btn-green" onclick="exportExcel()" id="export-xl-btn">⬇️ Export Excel</button>
         </div>
@@ -1434,6 +1439,43 @@ async function submitOpen() {
 }
 
 /* ── Reports ───────────────────────────────────────────── */
+function populateExportRange() {
+  const sel = document.getElementById('export-range');
+  if (!sel || sel.options.length > 0) return;
+  const now = new Date();
+  const allOpt = document.createElement('option');
+  allOpt.value = 'all';
+  allOpt.textContent = 'All Time';
+  sel.appendChild(allOpt);
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const opt = document.createElement('option');
+    opt.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    opt.textContent = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    if (i === 0) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  updateExportDesc();
+}
+
+function getExportDateRange() {
+  const val = document.getElementById('export-range')?.value;
+  if (!val || val === 'all') return { start: null, end: null, label: 'All Time', filename: 'AllTime' };
+  const [y, m] = val.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end   = new Date(y, m, 1);
+  const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return { start, end, label, filename: `${y}_${String(m).padStart(2,'0')}` };
+}
+
+function updateExportDesc() {
+  const { label } = getExportDateRange();
+  const desc = document.getElementById('export-range-desc');
+  if (desc) desc.textContent = label === 'All Time'
+    ? 'Export all orders ever with full customer and revenue details.'
+    : `Export all orders for ${label} with customer and revenue details.`;
+}
+
 async function loadReports() {
   try {
     const r = await fetch('/admin/api/reports/summary');
@@ -1449,6 +1491,7 @@ async function loadReports() {
   } catch {
     // silent fail
   }
+  populateExportRange();
 }
 
 /* ── PDF Export ────────────────────────────────────────── */
@@ -1458,13 +1501,14 @@ async function exportPDF() {
   btn.textContent = '⏳ Generating...';
 
   try {
-    const now   = new Date();
-    const month = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const now = new Date();
+    const { start, end, label, filename } = getExportDateRange();
 
-    // Fetch all orders for current month
     const r = await fetch('/admin/api/orders');
-    const orders = (await r.json()).filter(o => new Date(o.created_at) >= startOfMonth);
+    const allOrders = await r.json();
+    const orders = start
+      ? allOrders.filter(o => { const d = new Date(o.created_at); return d >= start && d < end; })
+      : allOrders;
 
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -1479,7 +1523,7 @@ async function exportPDF() {
     doc.setFontSize(11);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(148, 163, 184);
-    doc.text(`Monthly Report — ${month}`, 14, 30);
+    doc.text(`Report — ${label}`, 14, 30);
     doc.text(`Generated: ${now.toLocaleString('en-US')}`, 14, 38);
 
     // Summary
@@ -1531,7 +1575,7 @@ async function exportPDF() {
       doc.text(`Page ${i} of ${pageCount} — Algo Group Device Orders`, 14, doc.internal.pageSize.height - 10);
     }
 
-    doc.save(`AlgoGroup_Orders_${now.getFullYear()}_${String(now.getMonth()+1).padStart(2,'0')}.pdf`);
+    doc.save(`AlgoGroup_Orders_${filename}.pdf`);
   } catch (e) {
     alert('Failed to generate PDF: ' + e.message);
   } finally {
@@ -1547,11 +1591,13 @@ async function exportExcel() {
   btn.textContent = '⏳ Generating...';
 
   try {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const { start, end, filename } = getExportDateRange();
 
     const r = await fetch('/admin/api/orders');
-    const orders = (await r.json()).filter(o => new Date(o.created_at) >= startOfMonth);
+    const allOrders = await r.json();
+    const orders = start
+      ? allOrders.filter(o => { const d = new Date(o.created_at); return d >= start && d < end; })
+      : allOrders;
 
     const rows = orders.map(o => ({
       'Order #':    o.id,
@@ -1571,8 +1617,7 @@ async function exportExcel() {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Orders');
-    const month = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    XLSX.writeFile(wb, `AlgoGroup_Orders_${now.getFullYear()}_${String(now.getMonth()+1).padStart(2,'0')}.xlsx`);
+    XLSX.writeFile(wb, `AlgoGroup_Orders_${filename}.xlsx`);
   } catch (e) {
     alert('Failed to generate Excel: ' + e.message);
   } finally {
