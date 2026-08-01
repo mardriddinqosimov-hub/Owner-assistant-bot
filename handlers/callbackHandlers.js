@@ -1473,6 +1473,7 @@ async function renderMyCompanies(ctx, user) {
 const myCompanies = async (ctx) => {
   try {
     await ctx.answerCbQuery();
+    addCompanySessions.delete(ctx.from.id);
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.reply('Please /start first.');
     await renderMyCompanies(ctx, user);
@@ -1566,6 +1567,7 @@ const mainMenu = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     registrationSessions.delete(ctx.from.id);
+    addCompanySessions.delete(ctx.from.id);
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     const hasKey = user && !!user.company_api_key;
     const companyLine = hasKey
