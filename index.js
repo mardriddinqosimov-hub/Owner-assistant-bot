@@ -25,14 +25,10 @@ const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
 const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID || '1125665706';
 
 async function initDatabase() {
-  try {
-    await database.authenticate();
-    logger.info('✅ Database connected');
-    await database.sync({ alter: true });
-    logger.info('✅ Database synced');
-  } catch (error) {
-    logger.warn('⚠️  Database not available - bot running without DB: ' + error.message);
-  }
+  await database.authenticate();
+  logger.info('✅ Database connected');
+  await database.sync({ alter: true });
+  logger.info('✅ Database synced');
 }
 
 bot.use(async (ctx, next) => {

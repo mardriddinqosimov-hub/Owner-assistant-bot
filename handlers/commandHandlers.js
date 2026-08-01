@@ -47,6 +47,9 @@ function mapStatus(code) {
 }
 
 async function syncDrivers(user, companyKey, prefetchedDrivers) {
+  // One-time migration: wipe legacy rows that have no company_api_key (clean slate on first scoped sync)
+  await Driver.destroy({ where: { user_id: user.id, company_api_key: null } }).catch(() => {});
+
   const factorToken = process.env.FACTOR_SESSION_TOKEN;
   const factorTenantId = process.env.FACTOR_TENANT_ID;
   const isFactorUser = user.platform === 'factor';
