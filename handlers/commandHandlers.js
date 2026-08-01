@@ -2,6 +2,7 @@ const { Op } = require('sequelize');
 const User = require('../models/User');
 const Driver = require('../models/Driver');
 const Inspection = require('../models/Inspection');
+const LinkedCompany = require('../models/LinkedCompany');
 const logger = require('../utils/logger');
 const { fetchDrivers, fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, fetchCompanyInfo, fetchInspections, fetchFmcsaTransfers } = require('../services/eldService');
 const notifService = require('../services/notificationService');
@@ -188,24 +189,25 @@ const start = async (ctx) => {
       ? `✅ Connected to <b>${user.company_name || 'ELD'}</b>`
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
+    const keyboard = [];
+    if (hasKey) {
+      keyboard.push([{ text: `🏢 ${user.company_name || 'My Companies'}  ▾`, callback_data: 'my_companies' }]);
+    }
+    keyboard.push(
+      [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
+      [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
+      [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
+      [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+    );
+    if (!hasKey) keyboard.push([{ text: '🔄 Change Team', callback_data: 'change_team' }]);
+    keyboard.push([{ text: '❓ Help', callback_data: 'help_menu' }]);
+
     const menuMsg = await ctx.reply(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\n` +
       `ELD Driver Monitoring &amp; Device Orders\n\n` +
       `I'll help you monitor your drivers and manage device orders!\n\n` +
       companyLine,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
-            [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
-            [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
-            [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
-            [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
-            [{ text: '❓ Help',            callback_data: 'help_menu' }],
-          ],
-        },
-      }
+      { parse_mode: 'HTML', reply_markup: { inline_keyboard: keyboard } }
     );
     menuTracker.set(ctx.from.id, menuMsg.message_id);
 
@@ -251,6 +253,12 @@ const setapi = async (ctx) => {
 
     await user.update({ company_api_key: args, company_name: companyName, platform });
     user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+
+    // Save to portfolio so the company switcher knows about it
+    LinkedCompany.findOrCreate({
+      where: { user_id: user.id, company_api_key: args },
+      defaults: { company_name: companyName, platform },
+    }).catch(() => {});
 
     logger.info(`User ${ctx.from.id} connected company: ${companyName} (${platform})`);
     await ctx.reply(`✅ Connected${companyName ? ` to ${companyName}` : ''}!\n\n🔄 Syncing drivers...`);

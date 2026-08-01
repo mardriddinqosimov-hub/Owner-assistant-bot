@@ -18,7 +18,11 @@ const {
   buildOrderSummary,
   driverSearchSessions,
   renderDriverDetails,
+  addCompanySessions,
 } = require('./callbackHandlers');
+
+const LinkedCompany = require('../models/LinkedCompany');
+const { fetchDrivers: _fetchDrivers, fetchCompanyInfo } = require('../services/eldService');
 
 const ORDER_GROUP_ID = process.env.ORDER_GROUP_ID || '-5129310180';
 
@@ -103,6 +107,54 @@ const handleText = async (ctx) => {
   if (ctx.message.text.startsWith('/')) return;
 
   const userId = ctx.from.id;
+
+  // ── Add company flow ───────────────────────────────────────────────────────
+  if (addCompanySessions.has(userId)) {
+    addCompanySessions.delete(userId);
+    const apiKey = ctx.message.text.trim();
+    await ctx.reply('🔄 Connecting to ELD...');
+    try {
+      let driversRaw, info, platform;
+      try {
+        [driversRaw, info] = await Promise.all([_fetchDrivers(apiKey), fetchCompanyInfo(apiKey)]);
+        platform = 'leader';
+      } catch {
+        platform = 'factor';
+        driversRaw = [];
+        info = null;
+      }
+      const companyName = info?.name || info?.company_name || null;
+      const user = await User.findOne({ where: { telegram_id: userId } });
+
+      // Save to portfolio (ignore duplicate)
+      try {
+        await LinkedCompany.create({ user_id: user.id, company_name: companyName, company_api_key: apiKey, platform });
+      } catch (e) {
+        if (e.name !== 'SequelizeUniqueConstraintError') throw e;
+        return ctx.reply(
+          `⚠️ <b>${companyName || 'This company'}</b> is already in your portfolio.`,
+          { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏢 My Companies', callback_data: 'my_companies' }]] } }
+        );
+      }
+
+      // Switch active company to the newly added one
+      await user.update({ company_api_key: apiKey, company_name: companyName, platform });
+      const { syncDrivers } = require('./commandHandlers');
+      const freshUser = await User.findOne({ where: { telegram_id: userId } });
+      syncDrivers(freshUser, apiKey, driversRaw).catch(e => logger.warn('Add company sync failed:', e.message));
+
+      return ctx.reply(
+        `✅ <b>${companyName || 'Company'}</b> added and set as active!\n\nDrivers syncing in the background.`,
+        { parse_mode: 'HTML', reply_markup: { inline_keyboard: [[{ text: '🏢 My Companies', callback_data: 'my_companies' }]] } }
+      );
+    } catch (err) {
+      logger.error('addCompany text handler error:', err);
+      return ctx.reply(
+        `❌ Connection failed: ${err.message}\n\nCheck your API key and try again.`,
+        { reply_markup: { inline_keyboard: [[{ text: '➕ Try Again', callback_data: 'add_company' }], [{ text: '◀️ Back', callback_data: 'my_companies' }]] } }
+      );
+    }
+  }
 
   // ── Driver search ──────────────────────────────────────────────────────────
   if (driverSearchSessions.has(userId)) {

@@ -17,6 +17,7 @@ const groupHandlers = require('./handlers/groupHandlers');
 const notifService = require('./services/notificationService');
 const menuTracker = require('./utils/menuTracker');
 const ActivityLog = require('./models/ActivityLog'); // ensure table is created on sync
+const LinkedCompany = require('./models/LinkedCompany'); // ensure table is created on sync
 const dashboardModule = require('./routes/dashboard');
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
@@ -132,6 +133,13 @@ bot.action('driver_search_cancel', callbackHandlers.driverSearchCancel);
 // ─── DOT Inspection callbacks ─────────────────────────────────────────────────
 bot.action('dot_menu', callbackHandlers.dotMenu);
 bot.action(/^dot_detail_(\d+)$/, callbackHandlers.dotDetail);
+
+// ─── My Companies ─────────────────────────────────────────────────────────────
+bot.action('my_companies',                         callbackHandlers.myCompanies);
+bot.action(/^switch_company_(\d+)$/,               callbackHandlers.switchCompany);
+bot.action('add_company',                          callbackHandlers.addCompanyStart);
+bot.action(/^remove_company_(\d+)$/,               callbackHandlers.removeCompanyConfirm);
+bot.action(/^remove_company_yes_(\d+)$/,           callbackHandlers.removeCompanyDo);
 
 // ─── Menu callbacks ───────────────────────────────────────────────────────────
 bot.action('main_menu', callbackHandlers.mainMenu);

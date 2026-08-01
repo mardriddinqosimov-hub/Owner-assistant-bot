@@ -238,17 +238,23 @@ const haUserDetail = async (ctx) => {
   try {
     await ctx.answerCbQuery();
     const userId = parseInt(ctx.match[1], 10);
-    const [u, orderCount] = await Promise.all([
+    const LinkedCompany = require('../models/LinkedCompany');
+    const [u, orderCount, linkedCompanies] = await Promise.all([
       User.findByPk(userId),
       Order.count({ where: { user_id: userId } }),
+      LinkedCompany.findAll({ where: { user_id: userId }, order: [['created_at', 'ASC']] }),
     ]);
     if (!u) return ctx.editMessageText('❌ User not found.', { reply_markup: BACK_KB });
+
+    const companiesLine = linkedCompanies.length > 1
+      ? `\n🏢 Portfolio: ${linkedCompanies.map(c => `${c.company_name || '?'}${c.company_api_key === u.company_api_key ? ' ✅' : ''}`).join('  ·  ')}`
+      : '';
 
     const text =
       `👤 <b>${userName(u)}</b>${u.blocked ? '  🚫 <i>BLOCKED</i>' : ''}\n\n` +
       `🆔 Telegram ID: <code>${u.telegram_id}</code>\n` +
       (u.username ? `📎 Username: @${u.username}\n` : '') +
-      `🏢 Company: ${u.company_name || '—'}\n` +
+      `🏢 Company: ${u.company_name || '—'}${companiesLine}\n` +
       `📧 Email: ${u.contact_email || '—'}\n` +
       `📱 Platform: ${platLabel(u.platform)}\n` +
       `🎭 Role: ${roleIcon(u.role)} ${u.role}\n` +

@@ -6,10 +6,11 @@ const Driver = require('../models/Driver');
 const Order = require('../models/Order');
 const Inspection = require('../models/Inspection');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
+const LinkedCompany = require('../models/LinkedCompany');
 const { getSetting } = require('../models/Setting');
 const logger = require('../utils/logger');
 const { syncDrivers, mapStatus } = require('./commandHandlers');
-const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, formatSeconds } = require('../services/eldService');
+const { fetchDriverStatus, fetchVehicleStatus, fetchHosList, fetchFactorHosList, fetchCompanyInfo, fetchDrivers, formatSeconds } = require('../services/eldService');
 
 // ─── Driver Status Groups ────────────────────────────────────────────────────
 
@@ -477,6 +478,7 @@ async function showConfirmation(ctx, session) {
 // ─── Shared order session state ───────────────────────────────────────────────
 const orderPendingCustomQty = new Map();
 const orderSessions = new Map();
+const addCompanySessions = new Map(); // userId → true (waiting for API key text)
 
 // ─── Order: Submenu ───────────────────────────────────────────────────────────
 
@@ -1416,6 +1418,175 @@ const refCoverService = async (ctx) => {
   }
 };
 
+// ─── My Companies ─────────────────────────────────────────────────────────────
+
+async function renderMyCompanies(ctx, user) {
+  // Auto-import active company into portfolio on first visit
+  let companies = await LinkedCompany.findAll({ where: { user_id: user.id }, order: [['created_at', 'ASC']] });
+
+  if (companies.length === 0 && user.company_api_key) {
+    try {
+      await LinkedCompany.create({
+        user_id:         user.id,
+        company_name:    user.company_name,
+        company_api_key: user.company_api_key,
+        platform:        user.platform,
+      });
+    } catch {}
+    companies = await LinkedCompany.findAll({ where: { user_id: user.id }, order: [['created_at', 'ASC']] });
+  }
+
+  if (companies.length === 0) {
+    return ctx.editMessageText(
+      `🏢 <b>My Companies</b>\n\nNo companies linked yet. Add your first company:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          [{ text: '➕ Add Company', callback_data: 'add_company' }],
+          [{ text: '◀️ Back',        callback_data: 'main_menu' }],
+        ]},
+      }
+    );
+  }
+
+  // Driver counts: DB for active company (instant), ELD API for others (parallel)
+  const counts = await Promise.all(companies.map(async (c) => {
+    try {
+      if (c.company_api_key === user.company_api_key) {
+        const total   = await Driver.count({ where: { user_id: user.id } });
+        const onRoad  = await Driver.count({ where: { user_id: user.id, current_status: { [Op.in]: ['DRIVING', 'ON DUTY', 'PERSONAL CONVEYANCE', 'YARD MOVE'] } } });
+        return { total, onRoad };
+      }
+      const statuses = await fetchDriverStatus(c.company_api_key);
+      const onRoad = statuses.filter(s => {
+        const st = String(s.current_status ?? s.duty_status ?? s.status ?? '').toUpperCase();
+        return ['DRIVING', 'DS_D', 'ON DUTY', 'DS_ON', 'PERSONAL CONVEYANCE', 'DS_PC', 'YARD MOVE', 'DS_YM'].includes(st);
+      }).length;
+      return { total: statuses.length, onRoad };
+    } catch {
+      return { total: null, onRoad: null };
+    }
+  }));
+
+  const lines = companies.map((c, i) => {
+    const isActive = c.company_api_key === user.company_api_key;
+    const { total, onRoad } = counts[i];
+    const countLine = total !== null
+      ? `\n   🟢 ${onRoad} on road  ·  👥 ${total} total`
+      : '\n   — data unavailable';
+    return `${isActive ? '✅' : '   '} <b>${c.company_name || 'Unknown'}</b>${countLine}`;
+  }).join('\n\n');
+
+  const companyBtns = companies.map(c => {
+    const isActive = c.company_api_key === user.company_api_key;
+    const row = [{ text: `${isActive ? '✅ ' : ''}${c.company_name || 'Unknown'}`, callback_data: isActive ? 'noop' : `switch_company_${c.id}` }];
+    if (!isActive) row.push({ text: '🗑', callback_data: `remove_company_${c.id}` });
+    return row;
+  });
+
+  await ctx.editMessageText(
+    `🏢 <b>My Companies</b>\n\n${lines}`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: [
+        ...companyBtns,
+        [{ text: '➕ Add Company', callback_data: 'add_company' }],
+        [{ text: '◀️ Back',        callback_data: 'main_menu' }],
+      ]},
+    }
+  );
+}
+
+const myCompanies = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+    await renderMyCompanies(ctx, user);
+  } catch (err) {
+    logger.error('myCompanies error:', err);
+    await ctx.reply('❌ Error loading companies.');
+  }
+};
+
+const switchCompany = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Switching...');
+    const companyId = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    if (!user) return ctx.reply('Please /start first.');
+
+    const company = await LinkedCompany.findOne({ where: { id: companyId, user_id: user.id } });
+    if (!company) return ctx.reply('Company not found.');
+
+    await user.update({
+      company_api_key: company.company_api_key,
+      company_name:    company.company_name,
+      platform:        company.platform,
+    });
+
+    // Sync new company's drivers in the background
+    const freshUser = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    syncDrivers(freshUser, company.company_api_key).catch(e => logger.warn('Switch sync failed:', e.message));
+
+    await renderMyCompanies(ctx, freshUser);
+  } catch (err) {
+    logger.error('switchCompany error:', err);
+    await ctx.reply('❌ Error switching company.');
+  }
+};
+
+const addCompanyStart = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    addCompanySessions.set(ctx.from.id, true);
+    await ctx.editMessageText(
+      `➕ <b>Add Company</b>\n\nSend your <b>Company API Key</b>:\n\n<i>Find it in your ELD portal → Settings → API Key</i>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'my_companies' }]] },
+      }
+    );
+  } catch (err) {
+    logger.error('addCompanyStart error:', err);
+  }
+};
+
+const removeCompanyConfirm = async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const id = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    const company = await LinkedCompany.findOne({ where: { id, user_id: user.id } });
+    if (!company) return ctx.reply('Company not found.');
+
+    await ctx.editMessageText(
+      `🗑 <b>Remove Company</b>\n\nRemove <b>${company.company_name || 'this company'}</b> from your portfolio?\n\nYou can re-add it later with its API key.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: [
+          [{ text: '✅ Yes, Remove', callback_data: `remove_company_yes_${id}` }],
+          [{ text: '❌ Cancel',      callback_data: 'my_companies' }],
+        ]},
+      }
+    );
+  } catch (err) {
+    logger.error('removeCompanyConfirm error:', err);
+  }
+};
+
+const removeCompanyDo = async (ctx) => {
+  try {
+    await ctx.answerCbQuery('Removed.');
+    const id = parseInt(ctx.match[1], 10);
+    const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
+    await LinkedCompany.destroy({ where: { id, user_id: user.id } });
+    await renderMyCompanies(ctx, user);
+  } catch (err) {
+    logger.error('removeCompanyDo error:', err);
+  }
+};
+
 // ─── Main Menu / Help ─────────────────────────────────────────────────────────
 
 const mainMenu = async (ctx) => {
@@ -1428,14 +1599,18 @@ const mainMenu = async (ctx) => {
       ? `✅ Connected to <b>${user.company_name || 'ELD'}</b>`
       : '⚠️ No company connected. Use /setapi YOUR_COMPANY_KEY';
 
-    const keyboard = [
+    const keyboard = [];
+    if (hasKey) {
+      keyboard.push([{ text: `🏢 ${user.company_name || 'My Companies'}  ▾`, callback_data: 'my_companies' }]);
+    }
+    keyboard.push(
       [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
       [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
       [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
       [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
-      [{ text: '🔄 Change Team',     callback_data: 'change_team' }],
-      [{ text: '❓ Help',            callback_data: 'help_menu' }],
-    ];
+    );
+    if (!hasKey) keyboard.push([{ text: '🔄 Change Team', callback_data: 'change_team' }]);
+    keyboard.push([{ text: '❓ Help', callback_data: 'help_menu' }]);
 
     await ctx.editMessageText(
       `👋 Welcome to <b>OWNER ASSISTANT BOT</b>\n\nELD Driver Monitoring &amp; Device Orders\n\n${companyLine}`,
@@ -1727,6 +1902,7 @@ module.exports = {
   orderConfirm, orderEdit, orderCancel,
   orderActive, orderHistory, orderDetail, orderRedo,
   dotMenu, dotDetail,
+  myCompanies, switchCompany, addCompanyStart, removeCompanyConfirm, removeCompanyDo,
   mainMenu, changeTeam, helpMenu, sendManual,
   referralMenu, referralHistory,
   referralBalanceMenu, refWithdrawCard, refCoverService,
@@ -1737,4 +1913,5 @@ module.exports = {
   registrationSessions, REG_STEPS, REG_PROMPTS,
   cardSessions,
   buildOrderSummary, showConfirmation,
+  addCompanySessions,
 };
