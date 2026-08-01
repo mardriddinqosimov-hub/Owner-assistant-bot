@@ -324,7 +324,7 @@ function startGpsPolling() {
           const vehicleRaw = await fetchVehicleStatus(user.company_api_key);
           for (const v of vehicleRaw) {
             if (!v.driver_id) continue;
-            const driver = await Driver.findOne({ where: { driver_id: String(v.driver_id), user_id: user.id } });
+            const driver = await Driver.findOne({ where: { driver_id: String(v.driver_id), user_id: user.id, company_api_key: user.company_api_key } });
             if (!driver) continue;
             const rawLat = v.lat ?? v.latitude;
             const rawLon = v.lon ?? v.longitude;

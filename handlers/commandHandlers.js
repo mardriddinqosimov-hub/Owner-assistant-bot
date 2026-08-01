@@ -108,7 +108,7 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
       || (st.vehicle_id ? vehicleByVehicleId[String(st.vehicle_id)] : null)
       || {};
 
-    const existing = await Driver.findOne({ where: { user_id: user.id, driver_id: dId } });
+    const existing = await Driver.findOne({ where: { user_id: user.id, company_api_key: companyKey, driver_id: dId } });
 
     const rawLat = v.lat ?? v.latitude ?? v.gps_lat ?? v.last_lat ?? v.last_latitude
       ?? hos.lat ?? hos.latitude ?? hos.gps_lat ?? hos.gps_latitude
@@ -130,6 +130,7 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
 
     const driverData = {
       user_id:          user.id,
+      company_api_key:  companyKey,
       driver_id:        dId,
       driver_name:      name,
       truck_number:     rawTruck || null,
@@ -153,10 +154,10 @@ async function syncDrivers(user, companyKey, prefetchedDrivers) {
     }
   }
 
-  // Remove drivers that are no longer active
+  // Remove drivers that are no longer active (scoped to this company)
   if (activeIds.length > 0) {
     const removed = await Driver.destroy({
-      where: { user_id: user.id, driver_id: { [Op.notIn]: activeIds } },
+      where: { user_id: user.id, company_api_key: companyKey, driver_id: { [Op.notIn]: activeIds } },
     });
     if (removed > 0) logger.info(`Removed ${removed} inactive driver(s) for user ${user.id}`);
   }

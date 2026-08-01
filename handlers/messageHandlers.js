@@ -284,7 +284,7 @@ const handleText = async (ctx) => {
   if (user && user.company_api_key) {
     const query = ctx.message.text.trim().toLowerCase();
     if (query.length >= 2) {
-      const allDrivers = await Driver.findAll({ where: { user_id: user.id } });
+      const allDrivers = await Driver.findAll({ where: { user_id: user.id, company_api_key: user.company_api_key } });
       const matches = allDrivers.filter(d =>
         d.driver_name.toLowerCase().includes(query) ||
         (d.truck_number && d.truck_number.toLowerCase().includes(query))

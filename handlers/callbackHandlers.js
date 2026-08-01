@@ -47,7 +47,7 @@ async function renderDriverDetails(ctx, driverId, editMessage = true) {
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
   if (!user) return ctx.reply('Please /start first.');
 
-  const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
+  const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id, company_api_key: user.company_api_key } });
   if (!driver) return editMessage ? ctx.editMessageText('Driver not found.') : ctx.reply('Driver not found.');
 
   const info =
@@ -92,7 +92,7 @@ const driversList = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.reply('Please /start first.');
 
-    const drivers = await Driver.findAll({ where: { user_id: user.id } });
+    const drivers = await Driver.findAll({ where: { user_id: user.id, company_api_key: user.company_api_key } });
     if (!drivers.length) {
       return ctx.editMessageText('No drivers found.\n\nConnect your ELD:\n/setapi YOUR_COMPANY_KEY');
     }
@@ -152,7 +152,7 @@ async function renderCategoryList(ctx, key) {
   const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
   if (!user) return ctx.reply('Please /start first.');
 
-  const allDrivers = await Driver.findAll({ where: { user_id: user.id } });
+  const allDrivers = await Driver.findAll({ where: { user_id: user.id, company_api_key: user.company_api_key } });
   const g = STATUS_GROUPS[key];
   const drivers = allDrivers.filter(d => statusGroupKey(d.current_status) === key);
 
@@ -256,7 +256,7 @@ const driverRefresh = async (ctx) => {
       (st.vehicle_id && String(r.vehicle_id) === String(st.vehicle_id))
     ) || {};
 
-    const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
+    const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id, company_api_key: user.company_api_key } });
     if (driver) {
       const rawCode = st.current_status ?? st.duty_status ?? st.status ?? st.hos_status ?? st.driver_status;
       const mappedStatus = mapStatus(rawCode);
@@ -298,7 +298,7 @@ const driverLocation = async (ctx) => {
     const user = await User.findOne({ where: { telegram_id: ctx.from.id } });
     if (!user) return ctx.reply('Please /start first.');
 
-    const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id } });
+    const driver = await Driver.findOne({ where: { driver_id: driverId, user_id: user.id, company_api_key: user.company_api_key } });
     if (!driver) return ctx.editMessageText('Driver not found.');
 
     if (!driver.latitude || !driver.longitude) {

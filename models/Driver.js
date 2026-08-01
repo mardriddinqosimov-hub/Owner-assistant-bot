@@ -3,8 +3,9 @@ const sequelize = require('../config/database');
 
 const Driver = sequelize.define('Driver', {
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  user_id: { type: DataTypes.INTEGER, allowNull: false },
-  driver_id: { type: DataTypes.STRING, allowNull: false },
+  user_id:         { type: DataTypes.INTEGER, allowNull: false },
+  company_api_key: { type: DataTypes.STRING },
+  driver_id:       { type: DataTypes.STRING, allowNull: false },
   driver_name: { type: DataTypes.STRING, allowNull: false },
   truck_number: { type: DataTypes.STRING },
   eld_provider: { type: DataTypes.STRING },
