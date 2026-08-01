@@ -1421,21 +1421,13 @@ async function renderMyCompanies(ctx, user) {
     );
   }
 
-  // Driver counts: DB for active company (instant), ELD API for others (parallel)
+  // Driver counts: always from DB, scoped per company
   const counts = await Promise.all(companies.map(async (c) => {
     try {
-      if (c.company_api_key === user.company_api_key) {
-        const where = { user_id: user.id, company_api_key: c.company_api_key };
-        const total  = await Driver.count({ where });
-        const onRoad = await Driver.count({ where: { ...where, current_status: { [Op.in]: ['DRIVING', 'ON DUTY', 'PERSONAL CONVEYANCE', 'YARD MOVE'] } } });
-        return { total, onRoad };
-      }
-      const statuses = await fetchDriverStatus(c.company_api_key);
-      const onRoad = statuses.filter(s => {
-        const st = String(s.current_status ?? s.duty_status ?? s.status ?? '').toUpperCase();
-        return ['DRIVING', 'DS_D', 'ON DUTY', 'DS_ON', 'PERSONAL CONVEYANCE', 'DS_PC', 'YARD MOVE', 'DS_YM'].includes(st);
-      }).length;
-      return { total: statuses.length, onRoad };
+      const where = { user_id: user.id, company_api_key: c.company_api_key };
+      const total  = await Driver.count({ where });
+      const onRoad = await Driver.count({ where: { ...where, current_status: { [Op.in]: ['DRIVING', 'ON DUTY', 'PERSONAL CONVEYANCE', 'YARD MOVE'] } } });
+      return { total, onRoad };
     } catch {
       return { total: null, onRoad: null };
     }
