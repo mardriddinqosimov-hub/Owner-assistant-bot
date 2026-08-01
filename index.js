@@ -126,9 +126,6 @@ bot.action('referral_balance',               callbackHandlers.referralBalanceMen
 bot.action('ref_withdraw_card',              callbackHandlers.refWithdrawCard);
 bot.action('ref_cover_service',              callbackHandlers.refCoverService);
 
-// ─── Driver search ────────────────────────────────────────────────────────────
-bot.action('driver_search',        callbackHandlers.driverSearch);
-bot.action('driver_search_cancel', callbackHandlers.driverSearchCancel);
 
 // ─── DOT Inspection callbacks ─────────────────────────────────────────────────
 bot.action('dot_menu', callbackHandlers.dotMenu);
