@@ -1425,8 +1425,9 @@ async function renderMyCompanies(ctx, user) {
   const counts = await Promise.all(companies.map(async (c) => {
     try {
       if (c.company_api_key === user.company_api_key) {
-        const total   = await Driver.count({ where: { user_id: user.id } });
-        const onRoad  = await Driver.count({ where: { user_id: user.id, current_status: { [Op.in]: ['DRIVING', 'ON DUTY', 'PERSONAL CONVEYANCE', 'YARD MOVE'] } } });
+        const where = { user_id: user.id, company_api_key: c.company_api_key };
+        const total  = await Driver.count({ where });
+        const onRoad = await Driver.count({ where: { ...where, current_status: { [Op.in]: ['DRIVING', 'ON DUTY', 'PERSONAL CONVEYANCE', 'YARD MOVE'] } } });
         return { total, onRoad };
       }
       const statuses = await fetchDriverStatus(c.company_api_key);
