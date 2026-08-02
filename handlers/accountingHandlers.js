@@ -1,4 +1,5 @@
 const { Op } = require('sequelize');
+const sequelize = require('../config/database');
 const Order    = require('../models/Order');
 const User     = require('../models/User');
 const Referral = require('../models/Referral');
@@ -563,15 +564,18 @@ const acctRefPayout = async (ctx) => {
 
     const owner = await User.findByPk(ref.owner_id);
     const label = method === 'card' ? 'Card Payment' : 'Order Credit';
+    let newBal = 0;
 
-    await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
+    await sequelize.transaction(async (t) => {
+      await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() }, { transaction: t });
+      if (owner) {
+        newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
+        await owner.update({ referral_balance: newBal.toFixed(2) }, { transaction: t });
+      }
+    });
 
-    // Deduct from owner balance
+    // Notify owner outside transaction — failure must not roll back the payment
     if (owner) {
-      const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
-      await owner.update({ referral_balance: newBal.toFixed(2) });
-
-      // Notify owner via main bot
       const mainBot = getMainBot();
       if (mainBot) {
         try {

@@ -3,6 +3,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const { Op } = require('sequelize');
+const sequelize = require('../config/database');
 const Order              = require('../models/Order');
 const User               = require('../models/User');
 const Referral           = require('../models/Referral');
@@ -178,22 +179,25 @@ router.post('/api/referral-payout', express.json(), async (req, res) => {
       return res.status(409).json({ error: `Owner has a pending withdrawal request of $${parseFloat(pendingWR.amount).toFixed(2)}. Mark it done first before paying individually.` });
     }
 
-    await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() });
-
     const owner = await User.findByPk(ref.owner_id);
     let newBal = 0;
-    if (owner) {
-      newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
-      await owner.update({ referral_balance: newBal.toFixed(2) });
 
-      if (_bot) {
-        try {
-          const msg = method === 'card'
-            ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
-            : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as service credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
-          await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
-        } catch {}
+    await sequelize.transaction(async (t) => {
+      await ref.update({ status: 'paid', payout_method: method, paid_at: new Date() }, { transaction: t });
+      if (owner) {
+        newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(ref.reward));
+        await owner.update({ referral_balance: newBal.toFixed(2) }, { transaction: t });
       }
+    });
+
+    // Notify outside transaction — failure must not roll back the payment
+    if (owner && _bot) {
+      try {
+        const msg = method === 'card'
+          ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
+          : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as service credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
+        await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
+      } catch {}
     }
 
     res.json({ ok: true, newBalance: newBal.toFixed(2) });
@@ -298,15 +302,15 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
 
     const owner = await User.findByPk(wr.owner_id);
     if (owner) {
-      // Always zero out balance — withdrawal covers everything the owner is owed
-      const newBal = 0;
-      await owner.update({ referral_balance: '0.00' });
+      // Deduct only what was requested — referrals confirmed after the request stay in balance
+      const newBal = Math.max(0, parseFloat(owner.referral_balance || 0) - parseFloat(wr.amount));
+      await owner.update({ referral_balance: newBal.toFixed(2) });
 
-      // Move all confirmed referrals to paid so they don't get paid again
+      // Only mark referrals that were confirmed before this withdrawal was created as paid
       const payoutMethod = wr.source === 'service_cover' ? 'service_cover' : 'card';
       await Referral.update(
         { status: 'paid', payout_method: payoutMethod, paid_at: new Date() },
-        { where: { owner_id: wr.owner_id, status: 'confirmed' } }
+        { where: { owner_id: wr.owner_id, status: 'confirmed', confirmed_at: { [Op.lte]: wr.created_at } } }
       );
 
       if (_bot) {
