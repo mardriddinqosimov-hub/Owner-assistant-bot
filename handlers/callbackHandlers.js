@@ -1567,10 +1567,10 @@ const mainMenu = async (ctx) => {
       keyboard.push([{ text: `🏢 ${user.company_name || 'My Companies'}  ▾`, callback_data: 'my_companies' }]);
     }
     keyboard.push(
-      [{ text: '👥 View Drivers',    callback_data: 'drivers_list' }],
-      [{ text: '📦 Order Devices',   callback_data: 'order_devices_start' }],
-      [{ text: '🚔 DOT Inspections', callback_data: 'dot_menu' }],
-      [{ text: '💰 My Referrals',    callback_data: 'referral_menu' }],
+      [{ text: '👥 View Drivers',                   callback_data: 'drivers_list' }],
+      [{ text: '🚔 DOT Inspections',                callback_data: 'dot_menu' }],
+      [{ text: '📦 Order Devices  · coming soon',   callback_data: 'coming_soon' }],
+      [{ text: '💰 My Referrals  · coming soon',    callback_data: 'coming_soon' }],
     );
     if (!hasKey) keyboard.push([{ text: '🔄 Change Team', callback_data: 'change_team' }]);
     keyboard.push([{ text: '❓ Help', callback_data: 'help_menu' }]);
