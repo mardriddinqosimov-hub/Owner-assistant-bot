@@ -87,7 +87,38 @@
       top: 0; left: 0; bottom: 0;
       z-index: 100;
       overflow-y: auto;
+      overflow-x: hidden;
+      transition: width 0.22s ease;
     }
+    .sidebar.collapsed { width: 56px; }
+    .sidebar.collapsed .logo-text,
+    .sidebar.collapsed .nav-section,
+    .sidebar.collapsed .nav-item span:not(.nav-icon),
+    .sidebar.collapsed .nav-item .left span:not(.nav-icon),
+    .sidebar.collapsed .nav-children,
+    .sidebar.collapsed .nav-chevron,
+    .sidebar.collapsed .sb-collapse-label { display: none !important; }
+    .main { transition: margin-left 0.22s ease; }
+    .main.sb-collapsed { margin-left: 56px; }
+
+    .sidebar-footer {
+      padding: 10px 8px;
+      border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+    .sb-collapse-btn {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 8px 10px;
+      border-radius: 8px; border: none;
+      background: transparent; color: var(--muted);
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sb-collapse-btn:hover { background: var(--hover); color: var(--text); }
+    .sb-collapse-icon { font-size: 15px; line-height: 1; flex-shrink: 0; transition: transform 0.22s ease; }
+    .sidebar.collapsed .sb-collapse-icon { transform: rotate(180deg); }
+    .sidebar.collapsed .sb-collapse-btn { justify-content: center; }
 
     .sidebar-logo {
       padding: 18px 16px 16px;
@@ -535,7 +566,7 @@
     /* ── Responsive ────────────────────────────────────────── */
     @media (max-width: 900px) {
       .sidebar { width: 56px; }
-      .logo-text, .nav-section, .nav-item span:not(.nav-icon), .nav-children, .nav-chevron { display: none; }
+      .logo-text, .nav-section, .nav-item span:not(.nav-icon), .nav-children, .nav-chevron, .sb-collapse-label { display: none; }
       .main { margin-left: 56px; }
       .stats-row { grid-template-columns: 1fr; }
       .reports-stats { grid-template-columns: repeat(2,1fr); }
@@ -584,6 +615,13 @@
       <span>Referrals</span>
     </div>
   </nav>
+
+  <div class="sidebar-footer">
+    <button class="sb-collapse-btn" onclick="toggleSidebar()" title="Collapse menu">
+      <span class="sb-collapse-icon">‹</span>
+      <span class="sb-collapse-label">Collapse</span>
+    </button>
+  </div>
 </aside>
 
 <!-- ─── Main ─────────────────────────────────────── -->
@@ -945,6 +983,21 @@ function parseItemsFull(json, qty) {
 function shipLabel(s) {
   return s === 'overnight' ? 'Overnight (+$100)' : s === 'standard' ? 'Standard' : s || 'Standard';
 }
+
+/* ── Sidebar collapse ──────────────────────────────────── */
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const main    = document.querySelector('.main');
+  const collapsed = sidebar.classList.toggle('collapsed');
+  main.classList.toggle('sb-collapsed', collapsed);
+  localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+}
+(function() {
+  if (localStorage.getItem('sidebarCollapsed') === '1') {
+    document.querySelector('.sidebar')?.classList.add('collapsed');
+    document.querySelector('.main')?.classList.add('sb-collapsed');
+  }
+})();
 
 /* ── Theme toggle ──────────────────────────────────────── */
 function toggleTheme() {
