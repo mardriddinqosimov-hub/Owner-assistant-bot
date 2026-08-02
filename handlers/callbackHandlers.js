@@ -1132,15 +1132,11 @@ const dotDetail = async (ctx) => {
     const insp = await Inspection.findOne({ where: { id: inspId, user_id: user.id } });
     if (!insp) return ctx.editMessageText('Inspection not found.');
 
-    const vIcon = insp.violations > 0 ? '⚠️' : '✅';
     const text =
       `🚔 <b>DOT Inspection #${insp.id}</b>\n\n` +
       `👤 Driver: ${insp.driver_name}\n` +
       `📅 Date: ${formatDate(insp.inspection_date)}\n` +
-      (insp.report_number ? `📋 Report #: ${insp.report_number}\n` : '') +
-      (insp.level ? `📊 Level: ${insp.level}\n` : '') +
-      `⚠️ Violations: ${insp.violations} ${vIcon}\n` +
-      (insp.result ? `📝 Result: <b>${insp.result.toUpperCase()}</b>\n` : '');
+      (insp.level ? `📊 Level: ${insp.level}\n` : '');
 
     await ctx.editMessageText(text, {
       parse_mode: 'HTML',
