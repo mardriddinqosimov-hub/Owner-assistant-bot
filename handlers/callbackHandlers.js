@@ -1569,8 +1569,8 @@ const mainMenu = async (ctx) => {
     keyboard.push(
       [{ text: '👥 View Drivers',                   callback_data: 'drivers_list' }],
       [{ text: '🚔 DOT Inspections',                callback_data: 'dot_menu' }],
-      [{ text: '📦 Order Devices  · coming soon',   callback_data: 'coming_soon' }],
-      [{ text: '💰 My Referrals  · coming soon',    callback_data: 'coming_soon' }],
+      [{ text: '📦 Order Devices  🔴 ᶜᵒᵐⁱⁿᵍ ˢᵒᵒⁿ',  callback_data: 'coming_soon' }],
+      [{ text: '💰 My Referrals  🔴 ᶜᵒᵐⁱⁿᵍ ˢᵒᵒⁿ',   callback_data: 'coming_soon' }],
     );
     if (!hasKey) keyboard.push([{ text: '🔄 Change Team', callback_data: 'change_team' }]);
     keyboard.push([{ text: '❓ Help', callback_data: 'help_menu' }]);
