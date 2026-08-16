@@ -1867,6 +1867,25 @@ function printRefReport() {
   win.document.close();
 }
 
+function copyCard(card, btn) {
+  if (!card || card === '—') { alert('No card on file'); return; }
+  navigator.clipboard.writeText(card).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copied!';
+    btn.style.background = '#10b981';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 1800);
+  }).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = card;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = '📋 Copy Card', 1800);
+  });
+}
+
 async function refPayout(refId, method) {
   const label = method === 'card' ? '💳 Pay to Card' : '📦 Apply as Service Credit';
   if (!confirm(`${label} for referral #${refId}?\n\nThis will notify the owner and move the record to the paid section.`)) return;
@@ -2049,6 +2068,10 @@ function openRefDetail(refId) {
   document.getElementById('ref-modal-card-btn').onclick    = () => doRefAction(refId, 'card');
   document.getElementById('ref-modal-service-btn').onclick = () => doRefAction(refId, 'credit');
   document.getElementById('ref-modal-keep-btn').onclick    = () => doRefKeep(refId);
+  const copyBtn = document.getElementById('ref-modal-copy-btn');
+  copyBtn.dataset.card = ref.owner_card || '';
+  copyBtn.textContent = ref.owner_card ? '📋 Copy Card Number' : '📋 No Card on File';
+  copyBtn.disabled = !ref.owner_card;
 
   document.getElementById('ref-modal-overlay').style.display = 'flex';
   document.getElementById('ref-modal').style.display = 'block';
@@ -2125,17 +2148,17 @@ function renderWithdrawals() {
       <td><b>${w.owner_name}</b></td>
       <td>${w.owner_company}</td>
       <td><b style="color:#10b981">$${parseFloat(w.amount).toFixed(2)}</b></td>
-      <td style="font-family:monospace;letter-spacing:1px">${w.card_info}</td>
+      <td style="font-family:monospace;letter-spacing:1px">${w.card_info} <button onclick="copyCard('${(w.card_info||'').replace(/'/g,"\\'")}', this)" style="background:var(--border);color:var(--text);border:none;padding:2px 8px;border-radius:5px;cursor:pointer;font-size:11px;margin-left:4px">📋 Copy Card</button></td>
       <td>${fmtDate(w.created_at)}</td>
       <td>${w.status === 'pending'
         ? '<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">⏳ Pending</span>'
         : '<span style="background:#166534;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">✅ Done</span>'}</td>
-      <td>${w.status === 'pending' ? `<button onclick="markWdDone(${w.id})" style="background:#10b981;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">✓ Mark Sent</button>` : '—'}</td>
+      <td>${w.status === 'pending' ? `<button onclick="markWdDone(${w.id}, '${(w.card_info||'').replace(/'/g,"\\'")}')" style="background:#10b981;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">✓ Mark Sent</button>` : '—'}</td>
     </tr>`).join('');
 }
 
-async function markWdDone(id) {
-  if (!confirm('Mark this withdrawal as sent/processed?')) return;
+async function markWdDone(id, card) {
+  if (!confirm(`Mark this withdrawal as sent?\n\nSend money to card:\n${card || '—'}`)) return;
   try {
     const r = await fetch(`/admin/api/withdrawal-done/${id}`, { method: 'POST' });
     if (!r.ok) { alert('Failed'); return; }
@@ -2195,6 +2218,9 @@ setInterval(pollWithdrawals, 30000);
     <button id="ref-modal-card-btn" style="flex:1;background:#3b82f6;color:#fff;border:none;padding:11px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💳 Pay to Card</button>
     <button id="ref-modal-service-btn" style="flex:1;background:#10b981;color:#fff;border:none;padding:11px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">📦 Service Cover</button>
     <button id="ref-modal-keep-btn" style="flex:1;background:#8b5cf6;color:#fff;border:none;padding:11px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">💰 Keep in Balance</button>
+  </div>
+  <div style="margin-top:10px">
+    <button id="ref-modal-copy-btn" onclick="copyCard(this.dataset.card, this)" style="width:100%;background:var(--border);color:var(--text);border:none;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">📋 Copy Card Number</button>
   </div>
 </div>
 </body>
