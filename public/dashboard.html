@@ -1808,60 +1808,101 @@ function clearRefHistoryFilters() {
   filterRefHistory();
 }
 
-function printRefReport() {
-  const section = _currentRefSection;
+async function printRefReport() {
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '—';
-  const titleMap = { confirmed: 'Confirmed by Management', rewarded: 'Rewarded (Card)', service: 'Service Cover', history: 'All Referrals History', balances: 'Owner Balances' };
-  const title = titleMap[section] || 'Referrals Report';
   const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const nowTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-  let tableHtml = '';
+  let balances = [];
+  try {
+    const br = await fetch('/admin/api/referral-balances');
+    if (br.ok) balances = await br.json();
+  } catch {}
 
-  if (section === 'history') {
-    const q = (document.getElementById('ref-history-search')?.value || '').toLowerCase();
-    const st = document.getElementById('ref-history-status')?.value || '';
-    const filtered = _allRefs.filter(r => {
-      const matchStatus = !st || r.status === st;
-      const matchQ = !q || [r.referred_name, r.referred_company, r.owner_name].some(v => (v || '').toLowerCase().includes(q));
-      return matchStatus && matchQ;
-    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Status</th><th>Date</th></tr></thead><tbody>` +
-      (filtered.length ? filtered.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${r.status === 'paid' ? (r.payout_method === 'card' ? 'Rewarded' : r.payout_method === 'credit' ? 'Service Cover' : 'In Balance') : r.status}</td><td>${fmtDate(r.created_at)}</td></tr>`).join('') : '<tr><td colspan="9">No entries.</td></tr>') +
-      `</tbody></table>`;
-  } else if (section === 'confirmed') {
-    const rows = _allRefs.filter(r => r.status === 'confirmed');
-    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Trucks</th><th>Phone</th><th>Referred By</th><th>Reward</th><th>Confirmed Date</th></tr></thead><tbody>` +
-      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.confirmed_at)}</td></tr>`).join('') : '<tr><td colspan="8">No entries.</td></tr>') +
-      `</tbody></table>`;
-  } else if (section === 'rewarded') {
-    const rows = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'card');
-    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Reward</th><th>Paid Date</th></tr></thead><tbody>` +
-      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`).join('') : '<tr><td colspan="6">No entries.</td></tr>') +
-      `</tbody></table>`;
-  } else if (section === 'service') {
-    const rows = _allRefs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
-    tableHtml = `<table><thead><tr><th>#</th><th>Client</th><th>Company</th><th>Referred By</th><th>Reward</th><th>Applied Date</th></tr></thead><tbody>` +
-      (rows.length ? rows.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td>$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`).join('') : '<tr><td colspan="6">No entries.</td></tr>') +
-      `</tbody></table>`;
-  } else if (section === 'balances') {
-    const el = document.getElementById('ref-tbody-balances');
-    tableHtml = `<table><thead><tr><th>Owner</th><th>Company</th><th>Balance</th><th>Total Referrals</th><th>Total Earned</th><th>Card on File</th></tr></thead><tbody>${el ? el.innerHTML : ''}</tbody></table>`;
+  const refs = _allRefs || [];
+  const confirmed = refs.filter(r => r.status === 'confirmed');
+  const rewarded  = refs.filter(r => r.status === 'paid' && r.payout_method === 'card');
+  const service   = refs.filter(r => r.status === 'paid' && r.payout_method === 'credit');
+  const inBalance = refs.filter(r => r.status === 'paid' && r.payout_method === 'balance');
+  const allSorted = [...refs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const totalPaid = [...rewarded, ...service, ...inBalance].reduce((s, r) => s + parseFloat(r.reward || 0), 0);
+
+  function tbl(headers, rows) {
+    const ths = headers.map(h => `<th>${h}</th>`).join('');
+    const tds = rows.length ? rows.join('') : `<tr><td colspan="${headers.length}" style="text-align:center;color:#888;padding:14px">No entries.</td></tr>`;
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${tds}</tbody></table>`;
   }
 
+  function sec(title, color, table) {
+    return `<div class="section"><div class="section-title" style="border-left:4px solid ${color}">${title}</div>${table}</div>`;
+  }
+
+  const confirmedTable = tbl(
+    ['#', 'Client', 'Company', 'Trucks', 'Phone', 'Referred By', 'Reward', 'Confirmed Date'],
+    confirmed.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td class="amt">$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.confirmed_at)}</td></tr>`)
+  );
+  const rewardedTable = tbl(
+    ['#', 'Client', 'Company', 'Referred By', 'Card', 'Reward', 'Paid Date'],
+    rewarded.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td class="mono">${r.owner_card||'—'}</td><td class="amt">$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`)
+  );
+  const serviceTable = tbl(
+    ['#', 'Client', 'Company', 'Referred By', 'Reward', 'Applied Date'],
+    service.map(r => `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td class="amt">$${parseFloat(r.reward||200).toFixed(2)}</td><td>${fmtDate(r.paid_at)}</td></tr>`)
+  );
+  const balanceTable = tbl(
+    ['Owner', 'Company', 'Balance', 'Total Referrals', 'Total Earned', 'Card on File'],
+    balances.map(o => `<tr><td><b>${o.name||`ID ${o.id}`}</b></td><td>${o.company||'—'}</td><td class="amt"${o.balance > 0 ? ' style="color:#166534;font-weight:700"' : ''}>$${parseFloat(o.balance||0).toFixed(2)}</td><td>${o.total_refs}</td><td class="amt">$${parseFloat(o.total_earned||0).toFixed(2)}</td><td class="mono">${o.card_info||'—'}</td></tr>`)
+  );
+  const historyTable = tbl(
+    ['#', 'Client', 'Company', 'Trucks', 'Phone', 'Referred By', 'Reward', 'Status', 'Date'],
+    allSorted.map(r => {
+      const paidMap = { card: '💳 Rewarded', credit: '📦 Service', balance: '💰 In Balance' };
+      const statusMap = { confirmed: '✅ Confirmed', pending: '⏳ Pending', rejected: '❌ Rejected' };
+      const label = r.status === 'paid' ? (paidMap[r.payout_method] || 'Paid') : (statusMap[r.status] || r.status);
+      return `<tr><td>#${r.id}</td><td>${r.referred_name||'—'}</td><td>${r.referred_company||'—'}</td><td>${r.trucks_count||'—'}</td><td>${r.referred_phone||'—'}</td><td>${r.owner_name||`ID ${r.owner_id}`}</td><td class="amt">$${parseFloat(r.reward||200).toFixed(2)}</td><td>${label}</td><td>${fmtDate(r.created_at)}</td></tr>`;
+    })
+  );
+
   const win = window.open('', '_blank');
-  win.document.write(`<!DOCTYPE html><html><head><title>Referrals — ${title}</title><style>
-    body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
-    h1 { font-size: 20px; margin-bottom: 4px; }
-    .sub { color: #666; font-size: 13px; margin-bottom: 24px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { background: #1e293b; color: #fff; padding: 8px 10px; text-align: left; }
-    td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; }
-    tr:nth-child(even) td { background: #f8fafc; }
-    @media print { button { display: none; } }
+  win.document.write(`<!DOCTYPE html><html><head><title>Referrals Report — ${now}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,sans-serif;color:#111;padding:32px;font-size:13px}
+    .header{margin-bottom:24px;border-bottom:2px solid #1e293b;padding-bottom:14px}
+    .header h1{font-size:21px;font-weight:700;color:#1e293b}
+    .header .sub{color:#64748b;font-size:12px;margin-top:4px}
+    .stats{display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap}
+    .stat{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 16px;min-width:90px}
+    .stat .val{font-size:18px;font-weight:700;color:#1e293b}
+    .stat .lbl{font-size:11px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+    .section{margin-bottom:30px;page-break-inside:avoid}
+    .section-title{font-size:13px;font-weight:700;color:#1e293b;margin-bottom:8px;padding-left:10px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th{background:#1e293b;color:#fff;padding:7px 9px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+    td{padding:6px 9px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+    tr:nth-child(even) td{background:#f8fafc}
+    .amt{font-weight:600}
+    .mono{font-family:monospace;letter-spacing:1px}
+    .footer{margin-top:28px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:10px}
+    @media print{@page{margin:16mm}}
   </style></head><body>
-    <h1>Referrals — ${title}</h1>
-    <div class="sub">Generated ${now} · Owner Assistant Bot</div>
-    ${tableHtml}
+    <div class="header">
+      <h1>📊 Referrals Full Report</h1>
+      <div class="sub">Generated ${now} at ${nowTime} · Owner Assistant Bot</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="val">${refs.length}</div><div class="lbl">Total</div></div>
+      <div class="stat"><div class="val">${confirmed.length}</div><div class="lbl">Confirmed</div></div>
+      <div class="stat"><div class="val">${rewarded.length}</div><div class="lbl">Rewarded</div></div>
+      <div class="stat"><div class="val">${service.length}</div><div class="lbl">Service Cover</div></div>
+      <div class="stat"><div class="val">${inBalance.length}</div><div class="lbl">In Balance</div></div>
+      <div class="stat"><div class="val">$${totalPaid.toFixed(2)}</div><div class="lbl">Total Paid Out</div></div>
+    </div>
+    ${sec('✅ Confirmed by Management', '#16a34a', confirmedTable)}
+    ${sec('💳 Rewarded — Card Payments', '#2563eb', rewardedTable)}
+    ${sec('📦 Service Cover', '#d97706', serviceTable)}
+    ${sec('💰 Owner Balances', '#7c3aed', balanceTable)}
+    ${sec('📋 Full History — All Referrals', '#0f172a', historyTable)}
+    <div class="footer">Owner Assistant Bot · Referrals Report · ${now}</div>
     <script>window.onload = () => { window.print(); }<\/script>
   </body></html>`);
   win.document.close();
