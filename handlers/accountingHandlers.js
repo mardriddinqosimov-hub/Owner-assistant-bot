@@ -576,15 +576,12 @@ const acctRefPayout = async (ctx) => {
 
     // Notify owner outside transaction — failure must not roll back the payment
     if (owner) {
-      const mainBot = getMainBot();
-      if (mainBot) {
-        try {
-          const msg = method === 'card'
-            ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
-            : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as order credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
-          await mainBot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
-        } catch {}
-      }
+      try {
+        const msg = method === 'card'
+          ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
+          : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as order credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
+        await notifyCustomer(owner.telegram_id, msg, { parse_mode: 'HTML' });
+      } catch {}
     }
 
     await ctx.editMessageText(

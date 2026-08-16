@@ -9,6 +9,7 @@ const User               = require('../models/User');
 const Referral           = require('../models/Referral');
 const WithdrawalRequest  = require('../models/WithdrawalRequest');
 const { getSetting, setSetting } = require('../models/Setting');
+const { notifyCustomer } = require('../services/notificationService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -191,12 +192,12 @@ router.post('/api/referral-payout', express.json(), async (req, res) => {
     });
 
     // Notify outside transaction — failure must not roll back the payment
-    if (owner && _bot) {
+    if (owner) {
       try {
         const msg = method === 'card'
           ? `💳 <b>Referral Payout Sent!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been sent to your card for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`
           : `📦 <b>Referral Credit Applied!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} has been applied as service credit for referral #${ref.id} (${ref.referred_company || ref.referred_name}).\n\nRemaining balance: <b>$${newBal.toFixed(2)}</b>`;
-        await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
+        await notifyCustomer(owner.telegram_id, msg, { parse_mode: 'HTML' });
       } catch {}
     }
 
@@ -257,9 +258,9 @@ router.post('/api/referral-keep', express.json(), async (req, res) => {
     // Balance was already added when management confirmed — just notify owner
     const owner = await User.findByPk(ref.owner_id);
     const currentBal = parseFloat(owner?.referral_balance || 0);
-    if (owner && _bot) {
+    if (owner) {
       try {
-        await _bot.telegram.sendMessage(
+        await notifyCustomer(
           owner.telegram_id,
           `💰 <b>Reward Kept in Balance!</b>\n\n$${parseFloat(ref.reward).toFixed(2)} for referral #${ref.id} (${ref.referred_company || ref.referred_name}) is in your balance.\n\nCurrent balance: <b>$${currentBal.toFixed(2)}</b>\n\nYou can withdraw it anytime from the Referrals menu.`,
           { parse_mode: 'HTML' }
@@ -313,14 +314,13 @@ router.post('/api/withdrawal-done/:id', async (req, res) => {
         { where: { owner_id: wr.owner_id, status: 'confirmed', confirmed_at: { [Op.lte]: wr.created_at } } }
       );
 
-      if (_bot) {
-        try {
-          const msg = wr.source === 'service_cover'
-            ? `✅ <b>Service Credit Applied!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been applied toward your service payment.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`
-            : `💸 <b>Payment Sent!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been sent to your card ending in <b>${wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????'}</b>.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`;
-          await _bot.telegram.sendMessage(owner.telegram_id, msg, { parse_mode: 'HTML' });
-        } catch {}
-      }
+      try {
+        const msg = wr.source === 'service_cover'
+          ? `✅ <b>Service Credit Applied!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been applied toward your service payment.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`
+          : `💸 <b>Payment Sent!</b>\n\n<b>$${parseFloat(wr.amount).toFixed(2)}</b> has been sent to your card ending in <b>${wr.card_info ? wr.card_info.replace(/\s/g, '').slice(-4) : '????'}</b>.\n\nYour new balance: <b>$${newBal.toFixed(2)}</b>`;
+        await notifyCustomer(owner.telegram_id, msg, { parse_mode: 'HTML' });
+      } catch {}
+
     }
 
     res.json({ ok: true });
